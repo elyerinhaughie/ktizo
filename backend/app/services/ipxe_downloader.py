@@ -87,14 +87,38 @@ class IPXEDownloader:
             response.raise_for_status()
 
             try:
+                # Ensure parent directory exists and is writable
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                # Try to fix permissions if we're root
+                if os.getuid() == 0:
+                    try:
+                        import stat
+                        # Ensure directory is writable by root
+                        os.chmod(output_path.parent, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+                    except Exception:
+                        pass  # Ignore chmod errors, try to write anyway
+                
                 with open(output_path, 'wb') as f:
                     f.write(response.content)
+                
+                # Set proper permissions on the file (readable by all, writable by owner)
+                if os.getuid() == 0:
+                    try:
+                        os.chmod(output_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+                        os.chown(output_path, 0, 0)  # root:root
+                    except Exception:
+                        pass  # Ignore chmod/chown errors
+                
                 logger.info(f"Successfully downloaded {filename} ({len(response.content)} bytes) to {output_path}")
                 return True
             except PermissionError as pe:
                 error_msg = f"Permission denied writing {filename} to {output_path}: {pe}"
                 logger.error(error_msg)
-                logger.error(f"Directory permissions: {oct(output_path.parent.stat().st_mode)}")
+                try:
+                    logger.error(f"Directory permissions: {oct(output_path.parent.stat().st_mode)}")
+                    logger.error(f"Directory owner: {output_path.parent.stat().st_uid}:{output_path.parent.stat().st_gid}")
+                except Exception:
+                    pass
                 logger.error(f"Current user: {os.getuid()} (root=0)")
                 return False
             except OSError as ose:
