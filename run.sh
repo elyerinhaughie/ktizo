@@ -37,11 +37,21 @@ echo "Ktizo Intelligent Run Script"
 echo "=========================================="
 echo ""
 
-# Function to check if service is running
+# Function to check if service is actually responding (not just port in use)
 check_service() {
-    local port=$1
+    local url=$1
     local name=$2
-    if lsof -i :$port &>/dev/null || netstat -ulnp 2>/dev/null | grep -q ":$port"; then
+    # Actually try to connect to the service
+    if curl -s --max-time 2 "$url" &>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+# Function to check if port is in use (for detection, not verification)
+check_port() {
+    local port=$1
+    if lsof -i :$port &>/dev/null 2>&1 || (netstat -ulnp 2>/dev/null | grep -q ":$port"); then
         return 0
     fi
     return 1
@@ -83,11 +93,39 @@ if [ ! -f "$VENV_DIR/bin/activate" ]; then
 fi
 echo -e "${GREEN}✓${NC} Python environment found"
 
-# Step 2: Initialize database if needed
+# Step 2: Check if database is initialized (check for tables, not just file)
 echo ""
 echo "2. Checking database..."
-if [ ! -f "$DB_FILE" ]; then
-    echo "Database not found, initializing..."
+DB_INITIALIZED=false
+
+if [ -f "$DB_FILE" ]; then
+    # Check if database actually has tables
+    cd "$BACKEND_DIR"
+    source "$VENV_DIR/bin/activate"
+    
+    # Use Python to check if tables exist
+    if python -c "
+from app.db.database import engine
+from sqlalchemy import inspect
+inspector = inspect(engine)
+tables = inspector.get_table_names()
+required_tables = ['devices', 'cluster_settings', 'network_settings']
+if all(t in tables for t in required_tables):
+    exit(0)
+else:
+    exit(1)
+" 2>/dev/null; then
+        DB_INITIALIZED=true
+        echo -e "${GREEN}✓${NC} Database is initialized"
+    else
+        echo -e "${YELLOW}⚠${NC}  Database file exists but tables are missing"
+    fi
+else
+    echo "Database file not found"
+fi
+
+if [ "$DB_INITIALIZED" = false ]; then
+    echo "Initializing database..."
     mkdir -p "$DATA_DIR"
     mkdir -p "$LOGS_DIR"
     
@@ -100,31 +138,38 @@ if [ ! -f "$DB_FILE" ]; then
     elif python -c 'from app.db.database import init_db; init_db()' 2>/dev/null; then
         echo -e "${GREEN}✓${NC} Database initialized"
     else
-        echo -e "${YELLOW}⚠${NC}  Could not auto-initialize database"
+        echo -e "${RED}✗${NC} Could not auto-initialize database"
         echo "Please run manually: cd backend && source ../venv/bin/activate && python -m app.db.migrate"
+        exit 1
     fi
-else
-    echo -e "${GREEN}✓${NC} Database exists"
 fi
 
-# Step 3: Check if services are already running
+# Step 3: Check if services are already running (actually test connections)
 echo ""
 echo "3. Checking existing services..."
 BACKEND_RUNNING=false
 FRONTEND_RUNNING=false
 
-if check_service 8000 "backend"; then
+# Check if backend is actually responding (not just port in use)
+if check_service "http://localhost:8000/docs" "backend"; then
     BACKEND_RUNNING=true
-    echo -e "${YELLOW}⚠${NC}  Backend already running on port 8000"
+    echo -e "${GREEN}✓${NC} Backend is already running and responding"
+elif check_port 8000; then
+    echo -e "${YELLOW}⚠${NC}  Port 8000 is in use but backend is not responding"
+    echo "   This might be a different service. Will attempt to start backend anyway."
 else
-    echo -e "${GREEN}✓${NC} Backend port 8000 is free"
+    echo -e "${GREEN}✓${NC} Backend is not running"
 fi
 
-if check_service 5173 "frontend"; then
+# Check if frontend is actually responding
+if check_service "http://localhost:5173" "frontend"; then
     FRONTEND_RUNNING=true
-    echo -e "${YELLOW}⚠${NC}  Frontend already running on port 5173"
+    echo -e "${GREEN}✓${NC} Frontend is already running and responding"
+elif check_port 5173; then
+    echo -e "${YELLOW}⚠${NC}  Port 5173 is in use but frontend is not responding"
+    echo "   This might be a different service. Will attempt to start frontend anyway."
 else
-    echo -e "${GREEN}✓${NC} Frontend port 5173 is free"
+    echo -e "${GREEN}✓${NC} Frontend is not running"
 fi
 
 # Step 4: Start backend if not running
@@ -168,10 +213,11 @@ if [ "$FRONTEND_RUNNING" = false ]; then
     echo "$FRONTEND_PID" > "$SCRIPT_DIR/.frontend.pid"
     
     sleep 3
-    if check_service 5173 "frontend"; then
+    if check_service "http://localhost:5173" "frontend"; then
         echo -e "${GREEN}✓${NC} Frontend started (PID: $FRONTEND_PID)"
     else
         echo -e "${YELLOW}⚠${NC}  Frontend may still be starting. Check logs: $LOGS_DIR/frontend.log"
+        echo "   It may take a few more seconds for Vite to compile..."
     fi
 else
     echo ""
