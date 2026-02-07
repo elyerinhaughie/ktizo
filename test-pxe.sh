@@ -31,7 +31,7 @@ fi
 
 # Test 2: Check if ports are open
 echo -n "2. Testing DHCP port (67/UDP)... "
-if timeout 2 bash -c "echo > /dev/udp/$PXE_SERVER/67" 2>/dev/null || nc -u -z -w 2 "$PXE_SERVER" 67 2>/dev/null; then
+if timeout 3 bash -c "echo > /dev/udp/$PXE_SERVER/67" 2>/dev/null || (timeout 3 nc -u -z -w 2 "$PXE_SERVER" 67 2>/dev/null); then
     echo -e "${GREEN}✓${NC} Port 67 is open"
 else
     echo -e "${YELLOW}⚠${NC}  Cannot verify port 67 (UDP ports are hard to test)"
@@ -39,7 +39,7 @@ else
 fi
 
 echo -n "3. Testing TFTP port (69/UDP)... "
-if timeout 2 bash -c "echo > /dev/udp/$PXE_SERVER/69" 2>/dev/null || nc -u -z -w 2 "$PXE_SERVER" 69 2>/dev/null; then
+if timeout 3 bash -c "echo > /dev/udp/$PXE_SERVER/69" 2>/dev/null || (timeout 3 nc -u -z -w 2 "$PXE_SERVER" 69 2>/dev/null); then
     echo -e "${GREEN}✓${NC} Port 69 is open"
 else
     echo -e "${YELLOW}⚠${NC}  Cannot verify port 69 (UDP ports are hard to test)"
@@ -53,13 +53,19 @@ if [ "$EUID" -eq 0 ] || sudo -n true 2>/dev/null; then
     
     # Try using dhclient if available
     if command -v dhclient &>/dev/null; then
-        TMP_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
+        TMP_IFACE=$(ip route 2>/dev/null | grep default | awk '{print $5}' | head -1)
+        if [ -z "$TMP_IFACE" ]; then
+            # macOS fallback
+            TMP_IFACE=$(route get default 2>/dev/null | grep interface | awk '{print $2}' | head -1)
+        fi
         if [ -n "$TMP_IFACE" ]; then
             echo "   Using interface: $TMP_IFACE"
             # Release any existing lease
-            sudo dhclient -r "$TMP_IFACE" 2>/dev/null || true
+            sudo timeout 2 dhclient -r "$TMP_IFACE" 2>/dev/null || true
             # Try to get DHCP offer (timeout after 5 seconds)
             timeout 5 sudo dhclient -v "$TMP_IFACE" 2>&1 | grep -i "dhcp\|offer\|ack" || echo "   No DHCP response (may be normal if server only responds to PXE requests)"
+        else
+            echo "   Could not determine network interface"
         fi
     else
         echo "   dhclient not available, skipping DHCP test"
@@ -73,8 +79,9 @@ fi
 echo ""
 echo "5. Testing TFTP..."
 if command -v tftp &>/dev/null; then
-    echo "   Attempting to fetch boot.ipxe..."
-    if echo "get boot.ipxe /tmp/test-boot.ipxe" | tftp "$PXE_SERVER" 2>/dev/null; then
+    echo "   Attempting to fetch boot.ipxe (timeout: 5s)..."
+    if timeout 5 bash -c 'echo "get boot.ipxe /tmp/test-boot.ipxe" | tftp "$1" 2>/dev/null' _ "$PXE_SERVER"; then
+        sleep 1
         if [ -f /tmp/test-boot.ipxe ]; then
             echo -e "${GREEN}✓${NC} TFTP is working - boot.ipxe retrieved"
             echo "   File size: $(stat -f%z /tmp/test-boot.ipxe 2>/dev/null || stat -c%s /tmp/test-boot.ipxe 2>/dev/null) bytes"
@@ -83,7 +90,7 @@ if command -v tftp &>/dev/null; then
             echo -e "${YELLOW}⚠${NC}  TFTP command succeeded but file not found"
         fi
     else
-        echo -e "${YELLOW}⚠${NC}  Could not fetch boot.ipxe via TFTP"
+        echo -e "${YELLOW}⚠${NC}  Could not fetch boot.ipxe via TFTP (timeout or error)"
         echo "   This may be normal if file doesn't exist or path is different"
     fi
 else
@@ -95,11 +102,11 @@ fi
 echo ""
 echo "6. Testing HTTP endpoint (for iPXE configs)..."
 HTTP_URL="http://$PXE_SERVER:8000"
-if curl -s --max-time 2 "$HTTP_URL/health" &>/dev/null; then
+if timeout 5 curl -s --max-time 3 "$HTTP_URL/health" &>/dev/null; then
     echo -e "${GREEN}✓${NC} Backend API is accessible at $HTTP_URL"
     
     # Try to get boot script
-    if curl -s --max-time 2 "$HTTP_URL/talos/configs/test.yaml" &>/dev/null; then
+    if timeout 5 curl -s --max-time 3 "$HTTP_URL/talos/configs/test.yaml" &>/dev/null; then
         echo -e "${GREEN}✓${NC} Config endpoint is responding"
     else
         echo -e "${YELLOW}⚠${NC}  Config endpoint not accessible (may require valid MAC address)"
@@ -109,7 +116,41 @@ else
     echo "   Backend may be running on different port or not accessible from this network"
 fi
 
-# Test 6: Network connectivity summary
+# Test 6: Check dnsmasq status on remote server (if SSH available)
+echo ""
+echo "7. Checking dnsmasq status on remote server..."
+if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no root@"$PXE_SERVER" "echo 'SSH OK'" &>/dev/null; then
+    echo -e "${GREEN}✓${NC} SSH connection successful"
+    
+    # Check if dnsmasq is running
+    if ssh root@"$PXE_SERVER" "pgrep -x dnsmasq" &>/dev/null; then
+        echo -e "${GREEN}✓${NC} dnsmasq process is running"
+        
+        # Check if listening on ports
+        if ssh root@"$PXE_SERVER" "timeout 2 lsof -i :67 -i :69 2>/dev/null || timeout 2 netstat -ulnp 2>/dev/null | grep -qE ':(67|69)'"; then
+            echo -e "${GREEN}✓${NC} dnsmasq is listening on ports 67/69"
+        else
+            echo -e "${YELLOW}⚠${NC}  dnsmasq running but may not be listening on ports 67/69"
+        fi
+        
+        # Check config file
+        if ssh root@"$PXE_SERVER" "test -f /etc/dnsmasq.conf"; then
+            echo -e "${GREEN}✓${NC} Config file exists: /etc/dnsmasq.conf"
+            CONFIG_SIZE=$(ssh root@"$PXE_SERVER" "stat -c%s /etc/dnsmasq.conf 2>/dev/null || stat -f%z /etc/dnsmasq.conf 2>/dev/null")
+            echo "   Config size: ${CONFIG_SIZE} bytes"
+        else
+            echo -e "${RED}✗${NC} Config file not found: /etc/dnsmasq.conf"
+        fi
+    else
+        echo -e "${RED}✗${NC} dnsmasq is not running"
+        echo "   Start with: ssh root@$PXE_SERVER 'systemctl start dnsmasq'"
+    fi
+else
+    echo -e "${YELLOW}⚠${NC}  Cannot connect via SSH (skipping remote checks)"
+    echo "   Set up SSH key: ssh-copy-id root@$PXE_SERVER"
+fi
+
+# Test 8: Network connectivity summary
 echo ""
 echo "=========================================="
 echo "Network Summary"
@@ -118,7 +159,7 @@ echo "PXE Server IP: $PXE_SERVER"
 echo "Local IP: $(ipconfig getifaddr en0 2>/dev/null || hostname -I | awk '{print $1}' || echo 'unknown')"
 echo ""
 
-# Test 7: Check if on same network
+# Test 9: Check if on same network
 LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || hostname -I | awk '{print $1}' || echo "")
 if [ -n "$LOCAL_IP" ]; then
     LOCAL_NET=$(echo "$LOCAL_IP" | cut -d. -f1-3)
