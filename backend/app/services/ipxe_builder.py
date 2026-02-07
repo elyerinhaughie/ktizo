@@ -3,6 +3,8 @@ import logging
 import os
 import subprocess
 import shutil
+import stat
+import pwd
 from pathlib import Path
 from typing import Optional, Tuple
 from app.core.config import settings
