@@ -260,19 +260,17 @@ cd "$SCRIPT_DIR"
     cd "$BACKEND_DIR"
     source "$VENV_DIR/bin/activate"
     
-    nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > "$LOGS_DIR/backend.log" 2>&1 &
-    BACKEND_PID=$!
-    echo "$BACKEND_PID" > "$SCRIPT_DIR/.backend.pid"
-    
-    if wait_for_service "http://localhost:8000/docs" "backend"; then
-        echo -e "${GREEN}✓${NC} Backend started (PID: $BACKEND_PID)"
-    else
-        echo -e "${RED}✗${NC} Backend failed to start. Check logs: $LOGS_DIR/backend.log"
-        exit 1
-    fi
+nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > "$LOGS_DIR/backend.log" 2>&1 &
+BACKEND_PID=$!
+echo "$BACKEND_PID" > "$SCRIPT_DIR/.backend.pid"
+
+if wait_for_service "http://localhost:8000/docs" "backend"; then
+    echo -e "${GREEN}✓${NC} Backend started (PID: $BACKEND_PID)"
 else
-    echo ""
-    echo "4. Backend already running, skipping..."
+    echo -e "${RED}✗${NC} Backend failed to start. Check logs: $LOGS_DIR/backend.log"
+    echo "   Last 20 lines of log:"
+    tail -20 "$LOGS_DIR/backend.log" 2>/dev/null || echo "   (log file not found)"
+    exit 1
 fi
 
 # Step 5: Start frontend if not running
