@@ -147,6 +147,13 @@ async def update_network_settings(settings_id: int, settings: NetworkSettingsUpd
             import traceback
             print(f"Traceback: {traceback.format_exc()}")
             errors.append(error_msg)
+    except Exception as e:
+        # Catch any unexpected errors in the outer try block
+        error_msg = f"Unexpected error during boot.ipxe generation: {str(e)}"
+        print(f"ERROR: {error_msg}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        errors.append(error_msg)
 
     # If there were errors, raise an exception with details
     if errors:
