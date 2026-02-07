@@ -12,9 +12,36 @@ from app.schemas.cluster import (
 from app.crud import cluster as cluster_crud
 import subprocess
 import tempfile
+import os
+import shutil
 from pathlib import Path
 
 router = APIRouter()
+
+def find_talosctl() -> str:
+    """Find talosctl binary - check backend directory first, then PATH"""
+    # Check if talosctl is in the backend directory (native installation)
+    backend_dir = Path(__file__).parent.parent.parent
+    talosctl_path = backend_dir / "talosctl"
+    if talosctl_path.exists() and talosctl_path.is_file():
+        return str(talosctl_path)
+    
+    # Check if talosctl is in PATH
+    talosctl_in_path = shutil.which("talosctl")
+    if talosctl_in_path:
+        return talosctl_in_path
+    
+    # Not found
+    raise FileNotFoundError(
+        "talosctl not found. Please ensure talosctl is installed:\n"
+        "1. Run ./install.sh (downloads talosctl to backend/ directory)\n"
+        "2. Or install talosctl system-wide and ensure it's in PATH"
+    )
+
+def get_templates_base_dir() -> Path:
+    """Get the base templates directory, using environment variable or default"""
+    templates_dir = os.getenv("TEMPLATES_DIR", "/templates")
+    return Path(templates_dir) / "base"
 
 @router.get("/settings", response_model=ClusterSettingsResponse)
 async def get_cluster_settings(db: Session = Depends(get_db)):
