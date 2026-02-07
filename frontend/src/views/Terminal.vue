@@ -60,23 +60,33 @@ export default {
     }
   },
   watch: {
-    '$route'(to, from) {
-      // Hide terminal when navigating away
-      if (to.path !== '/terminal') {
-        this.isActive = false
-        this.cleanup()
-      } else if (to.path === '/terminal' && from.path !== '/terminal') {
-        // Show and initialize when navigating to terminal
-        this.isActive = true
-        this.$nextTick(() => {
-          if (!this.term) {
-            this.initTerminal()
-            this.connect()
-            setTimeout(() => {
-              this.setupResizeObserver()
-            }, 300)
-          }
-        })
+    '$route': {
+      immediate: true,
+      handler(to, from) {
+        // Hide terminal when navigating away
+        if (to.path !== '/terminal') {
+          this.isActive = false
+          this.cleanup()
+          // Force hide immediately
+          this.$nextTick(() => {
+            const terminalPage = document.querySelector('.terminal-page')
+            if (terminalPage && terminalPage.parentElement) {
+              terminalPage.style.cssText = 'display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; position: absolute !important; left: -9999px !important;'
+            }
+          })
+        } else if (to.path === '/terminal') {
+          // Show and initialize when navigating to terminal
+          this.isActive = true
+          this.$nextTick(() => {
+            if (!this.term) {
+              this.initTerminal()
+              this.connect()
+              setTimeout(() => {
+                this.setupResizeObserver()
+              }, 300)
+            }
+          })
+        }
       }
     }
   },
