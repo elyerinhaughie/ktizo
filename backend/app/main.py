@@ -113,6 +113,36 @@ async def startup_event():
         logger.error(f"Error checking Talos files on startup: {e}")
     finally:
         db.close()
+    
+    # Check and download kubectl if needed
+    try:
+        db = SessionLocal()
+        try:
+            from app.crud import cluster as cluster_crud
+            from app.services.kubectl_downloader import KubectlDownloader
+            
+            cluster_settings = cluster_crud.get_cluster_settings(db)
+            if cluster_settings and cluster_settings.kubectl_version:
+                kubectl_version = cluster_settings.kubectl_version
+                logger.info(f"Checking for kubectl {kubectl_version}...")
+                
+                kubectl_downloader = KubectlDownloader()
+                
+                # Set kubectl version (downloads if needed)
+                success, error = kubectl_downloader.set_kubectl_version(kubectl_version)
+                if success:
+                    logger.info(f"kubectl {kubectl_version} is ready for terminal use")
+                else:
+                    logger.warning(f"Could not set kubectl version {kubectl_version}: {error}")
+            else:
+                # Default kubectl version if no cluster settings
+                logger.info("No cluster settings found, using default kubectl version 1.28.0")
+                kubectl_downloader = KubectlDownloader()
+                kubectl_downloader.set_kubectl_version("1.28.0")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"Error setting up kubectl on startup (non-fatal): {e}")
 
 # Additional middleware to ensure CORS headers are always present
 # This runs after CORSMiddleware to ensure headers are on all responses

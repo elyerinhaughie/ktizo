@@ -8,6 +8,7 @@ class ClusterSettingsBase(BaseModel):
     external_subnet: Optional[str] = Field(default="10.0.128.0/24", description="External network range where physical nodes reside (e.g., 10.0.128.0/24)")
     cluster_endpoint: str = Field(default="10.0.128.1", description="Cluster endpoint IP or hostname")
     kubernetes_version: str = Field(default="1.28.0", description="Kubernetes version")
+    kubectl_version: str = Field(default="1.28.0", description="kubectl version to use in terminal")
     install_disk: str = Field(default="/dev/sda", description="Disk to install Talos on")
     install_image: str = Field(default="ghcr.io/siderolabs/installer:latest", description="Talos installer image")
     pod_subnet: str = Field(default="10.244.0.0/16", description="Pod network CIDR")
@@ -26,6 +27,7 @@ class ClusterSettingsUpdate(BaseModel):
     external_subnet: Optional[str] = None
     cluster_endpoint: Optional[str] = None
     kubernetes_version: Optional[str] = None
+    kubectl_version: Optional[str] = None
     install_disk: Optional[str] = None
     install_image: Optional[str] = None
     pod_subnet: Optional[str] = None

@@ -17,20 +17,49 @@ router = APIRouter()
 
 def _build_env() -> dict:
     """Build environment variables for the terminal shell."""
+    from app.db.database import SessionLocal
+    from app.crud import cluster as cluster_crud
+    from app.services.kubectl_downloader import KubectlDownloader
+    
     env = os.environ.copy()
     home = os.path.expanduser("~")
 
-    # Set kubeconfig and talosconfig paths
-    env["KUBECONFIG"] = os.path.join(home, ".kube", "config")
-    env["TALOSCONFIG"] = os.path.join(home, ".talos", "config")
-
-    # Ensure common tool paths are on PATH
-    extra_paths = ["/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    # Get cluster settings to determine kubectl version
+    db = SessionLocal()
+    try:
+        cluster_settings = cluster_crud.get_cluster_settings(db)
+        kubectl_version = cluster_settings.kubectl_version if cluster_settings else "1.28.0"
+    finally:
+        db.close()
+    
+    # Set kubectl version and add to PATH
+    kubectl_downloader = KubectlDownloader()
+    kubectl_path = kubectl_downloader.get_kubectl_path()
+    
+    # Ensure kubectl is in PATH (prioritize our version)
+    extra_paths = []
+    if kubectl_path and kubectl_path.parent.exists():
+        # Add directory containing kubectl to PATH
+        extra_paths.append(str(kubectl_path.parent.resolve()))
+    
+    # Add standard paths
+    extra_paths.extend(["/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"])
+    
     existing = env.get("PATH", "")
     for p in extra_paths:
         if p not in existing:
             existing = f"{p}:{existing}"
     env["PATH"] = existing
+
+    # Set kubeconfig path - ensure directory exists
+    kubeconfig_dir = os.path.join(home, ".kube")
+    kubeconfig_path = os.path.join(kubeconfig_dir, "config")
+    os.makedirs(kubeconfig_dir, mode=0o700, exist_ok=True)
+    
+    # Set kubeconfig and talosconfig paths
+    env["KUBECONFIG"] = kubeconfig_path
+    env["TALOSCONFIG"] = os.path.join(home, ".talos", "config")
+    
     env["TERM"] = "xterm-256color"
 
     return env

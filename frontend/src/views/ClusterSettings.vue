@@ -99,6 +99,17 @@
           </div>
 
           <div class="form-group">
+            <label>kubectl Version (for Terminal)</label>
+            <input
+              v-model="settings.kubectl_version"
+              type="text"
+              placeholder="1.34.1"
+              :disabled="loading"
+            />
+            <small>kubectl version to use in the web terminal. Should match or be compatible with Kubernetes version.</small>
+          </div>
+
+          <div class="form-group">
             <label>Installer Image</label>
             <input
               v-model="settings.install_image"
@@ -265,6 +276,7 @@ export default {
         external_subnet: '10.0.128.0/24',
         cluster_endpoint: '10.0.128.1',
         kubernetes_version: '1.34.1',
+        kubectl_version: '1.34.1',
         install_disk: '/dev/sda',
         install_image: 'ghcr.io/siderolabs/installer:latest',
         pod_subnet: '10.244.0.0/16',
@@ -294,6 +306,7 @@ export default {
           external_subnet: response.external_subnet || '',
           cluster_endpoint: response.cluster_endpoint,
           kubernetes_version: response.kubernetes_version,
+          kubectl_version: response.kubectl_version || response.kubernetes_version,
           install_disk: response.install_disk,
           install_image: response.install_image,
           pod_subnet: response.pod_subnet,

@@ -53,6 +53,7 @@ class ClusterSettings(Base):
 
     # Kubernetes version
     kubernetes_version = Column(String, default="1.28.0")
+    kubectl_version = Column(String, default="1.28.0")  # kubectl version to use in terminal
 
     # Installation configuration
     install_disk = Column(String, default="/dev/sda")

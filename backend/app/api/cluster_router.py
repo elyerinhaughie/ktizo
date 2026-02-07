@@ -15,7 +15,10 @@ import subprocess
 import tempfile
 import os
 import shutil
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -81,10 +84,21 @@ async def update_cluster_settings(settings_id: int, settings: ClusterSettingsUpd
     from app.crud import device as device_crud
     from app.db.models import DeviceStatus
     from app.services.config_generator import ConfigGenerator
+    from app.services.kubectl_downloader import KubectlDownloader
 
     updated = cluster_crud.update_cluster_settings(db, settings_id, settings)
     if not updated:
         raise HTTPException(status_code=404, detail="Cluster settings not found")
+
+    # If kubectl_version was updated, download and set that version
+    if settings.kubectl_version is not None:
+        try:
+            kubectl_downloader = KubectlDownloader()
+            success, error = kubectl_downloader.set_kubectl_version(updated.kubectl_version)
+            if not success:
+                logger.warning(f"Failed to set kubectl version to {updated.kubectl_version}: {error}")
+        except Exception as e:
+            logger.warning(f"Error setting kubectl version: {e}")
 
     # Automatically regenerate base Talos configs after settings update
     try:
@@ -453,11 +467,27 @@ async def download_kubeconfig(db: Session = Depends(get_db)):
                     detail=f"Failed to retrieve kubeconfig: {result.stderr}"
                 )
 
+            # Read kubeconfig content before temp directory is deleted
+            with open(kubeconfig_path, 'r') as f:
+                kubeconfig_content = f.read()
+            
+            # Save to ~/.kube/config for terminal use
+            kubeconfig_home = Path.home() / ".kube"
+            kubeconfig_home.mkdir(mode=0o700, exist_ok=True)
+            kubeconfig_home_path = kubeconfig_home / "config"
+            
+            # Write kubeconfig to home directory
+            with open(kubeconfig_home_path, 'w') as f:
+                f.write(kubeconfig_content)
+            os.chmod(kubeconfig_home_path, 0o600)
+            logger.info(f"Saved kubeconfig to {kubeconfig_home_path} for terminal use")
+            
             # Return the file as a download
-            return FileResponse(
-                path=str(kubeconfig_path),
-                filename="kubeconfig.yaml",
-                media_type="application/x-yaml"
+            from fastapi.responses import Response
+            return Response(
+                content=kubeconfig_content,
+                media_type="application/x-yaml",
+                headers={"Content-Disposition": "attachment; filename=kubeconfig.yaml"}
             )
 
     except HTTPException:

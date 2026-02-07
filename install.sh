@@ -231,6 +231,54 @@ download_talosctl() {
     echo "✅ talosctl downloaded ($TALOS_VERSION)"
 }
 
+# Function to download kubectl
+download_kubectl() {
+    echo ""
+    echo "Downloading kubectl..."
+    
+    cd "$INSTALL_DIR/backend"
+    
+    # Detect architecture
+    ARCH=$(uname -m)
+    if [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "aarch64" ]]; then
+        KUBECTL_ARCH="arm64"
+    elif [[ "$ARCH" == "x86_64" ]]; then
+        KUBECTL_ARCH="amd64"
+    else
+        KUBECTL_ARCH="amd64"  # Default fallback
+    fi
+    
+    # Get latest stable version
+    KUBECTL_VERSION=$(curl -s https://dl.k8s.io/release/stable.txt | tr -d 'v')
+    if [ -z "$KUBECTL_VERSION" ]; then
+        KUBECTL_VERSION="1.28.0"
+    fi
+    
+    # Download kubectl
+    if [[ "$OS" == "macos" ]]; then
+        KUBECTL_OS="darwin"
+    else
+        KUBECTL_OS="linux"
+    fi
+    
+    # Create kubectl-versions directory
+    mkdir -p kubectl-versions
+    
+    KUBECTL_URL="https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/${KUBECTL_OS}/${KUBECTL_ARCH}/kubectl"
+    KUBECTL_VERSIONED="kubectl-versions/kubectl-${KUBECTL_VERSION}"
+    
+    echo "Downloading kubectl ${KUBECTL_VERSION} from: $KUBECTL_URL"
+    curl -L "$KUBECTL_URL" -o "$KUBECTL_VERSIONED"
+    chmod +x "$KUBECTL_VERSIONED"
+    
+    # Create symlink to default version
+    ln -sf "$KUBECTL_VERSIONED" kubectl
+    
+    echo "✅ kubectl downloaded ($KUBECTL_VERSION)"
+    echo "   kubectl is available at: $INSTALL_DIR/backend/kubectl"
+    echo "   Versioned binaries stored in: $INSTALL_DIR/backend/kubectl-versions/"
+}
+
 # Function to create directories
 create_directories() {
     echo ""
@@ -500,6 +548,7 @@ main() {
     setup_python
     setup_node
     download_talosctl
+    download_kubectl
     setup_dnsmasq
     create_startup_scripts
     
