@@ -189,3 +189,9 @@ async def options_handler(full_path: str):
             "Access-Control-Allow-Headers": "*",
         }
     )
+
+# Include API routers
+app.include_router(device_router.router, prefix="/api", tags=["devices"])
+app.include_router(network_router.router, prefix="/api/network", tags=["network"])
+app.include_router(cluster_router.router, prefix="/api/cluster", tags=["cluster"])
+app.include_router(volume_router.router, prefix="/api/volumes", tags=["volumes"])
