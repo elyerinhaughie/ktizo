@@ -2,10 +2,18 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from pathlib import Path
+import os
 
 # Database file location
-DB_DIR = Path(__file__).parent.parent.parent.parent / "data"
-DB_DIR.mkdir(exist_ok=True)
+# Use DATA_DIR environment variable if set, otherwise use ~/.ktizo/data
+data_dir_env = os.getenv("DATA_DIR")
+if data_dir_env:
+    DB_DIR = Path(data_dir_env)
+else:
+    # Default to ~/.ktizo/data
+    DB_DIR = Path.home() / ".ktizo" / "data"
+
+DB_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE_URL = f"sqlite:///{DB_DIR}/ktizo.db"
 
 engine = create_engine(

@@ -9,9 +9,16 @@ set +e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/venv"
 BACKEND_DIR="$SCRIPT_DIR/backend"
-DATA_DIR="$SCRIPT_DIR/data"
+
+# Use ~/.ktizo as base for all persistent data
+KTIZO_HOME="${KTIZO_HOME:-$HOME/.ktizo}"
+DATA_DIR="$KTIZO_HOME/data"
+COMPILED_DIR="$KTIZO_HOME/compiled"
+LOGS_DIR="$KTIZO_HOME/logs"
 DB_FILE="$DATA_DIR/ktizo.db"
-LOGS_DIR="$SCRIPT_DIR/logs"
+
+# Create directories if they don't exist
+mkdir -p "$DATA_DIR" "$COMPILED_DIR" "$LOGS_DIR"
 
 # Colors for output
 RED='\033[0;31m'
@@ -163,8 +170,7 @@ fi
 
 if [ "$DB_INITIALIZED" = false ]; then
     echo "Initializing database..."
-    mkdir -p "$DATA_DIR"
-    mkdir -p "$LOGS_DIR"
+    # Directories already created at top of script
     
     cd "$BACKEND_DIR"
     source "$VENV_DIR/bin/activate"
@@ -220,11 +226,13 @@ if [ "$BACKEND_RUNNING" = false ]; then
     fi
     
     cd "$SCRIPT_DIR"
-    mkdir -p "$LOGS_DIR"
+    # LOGS_DIR already created at top of script
     
-    # Set absolute paths for templates and compiled directories
+    # Set absolute paths for templates (project) and compiled (persistent)
     export TEMPLATES_DIR="$(cd "$SCRIPT_DIR/templates" && pwd)"
-    export COMPILED_DIR="$(cd "$SCRIPT_DIR/compiled" && pwd)"
+    export COMPILED_DIR="$(cd "$COMPILED_DIR" && pwd)"
+    export DATA_DIR="$(cd "$DATA_DIR" && pwd)"
+    export LOGS_DIR="$(cd "$LOGS_DIR" && pwd)"
     export PYTHONUNBUFFERED=1
     
     cd "$BACKEND_DIR"
@@ -445,6 +453,11 @@ echo "Services:"
 echo "  ${GREEN}Backend:${NC}  http://localhost:8000"
 echo "  ${GREEN}Frontend:${NC} http://localhost:5173"
 echo "  ${GREEN}API Docs:${NC} http://localhost:8000/docs"
+echo ""
+echo "Data location: ${GREEN}$KTIZO_HOME${NC}"
+echo "  Database: $DB_FILE"
+echo "  Compiled: $COMPILED_DIR"
+echo "  Logs: $LOGS_DIR"
 echo ""
 echo "Logs:"
 echo "  Backend:  $LOGS_DIR/backend.log"

@@ -215,12 +215,22 @@ create_directories() {
     echo ""
     echo "Creating required directories..."
     
-    mkdir -p "$INSTALL_DIR/compiled/dnsmasq"
-    mkdir -p "$INSTALL_DIR/compiled/pxe/talos"
-    mkdir -p "$INSTALL_DIR/compiled/talos/configs"
-    mkdir -p "$INSTALL_DIR/data"
+    # Use ~/.ktizo for persistent data
+    KTIZO_HOME="${KTIZO_HOME:-$HOME/.ktizo}"
+    KTIZO_DATA="$KTIZO_HOME/data"
+    KTIZO_COMPILED="$KTIZO_HOME/compiled"
+    KTIZO_LOGS="$KTIZO_HOME/logs"
     
-    echo "✅ Directories created"
+    mkdir -p "$KTIZO_DATA"
+    mkdir -p "$KTIZO_COMPILED/dnsmasq"
+    mkdir -p "$KTIZO_COMPILED/pxe/talos"
+    mkdir -p "$KTIZO_COMPILED/talos/configs"
+    mkdir -p "$KTIZO_LOGS"
+    
+    echo "✅ Directories created in $KTIZO_HOME"
+    echo "   Data: $KTIZO_DATA"
+    echo "   Compiled: $KTIZO_COMPILED"
+    echo "   Logs: $KTIZO_LOGS"
 }
 
 # Function to setup dnsmasq
@@ -383,9 +393,13 @@ create_startup_scripts() {
 SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 cd "\$SCRIPT_DIR/backend"
 source "\$SCRIPT_DIR/venv/bin/activate"
-# Use absolute paths for templates and compiled directories
+
+# Use ~/.ktizo for persistent data
+KTIZO_HOME="\${KTIZO_HOME:-\$HOME/.ktizo}"
 export TEMPLATES_DIR="\$(cd "\$SCRIPT_DIR/templates" && pwd)"
-export COMPILED_DIR="\$(cd "\$SCRIPT_DIR/compiled" && pwd)"
+export COMPILED_DIR="\$(cd "\$KTIZO_HOME/compiled" && pwd)"
+export DATA_DIR="\$(cd "\$KTIZO_HOME/data" && pwd)"
+export LOGS_DIR="\$(cd "\$KTIZO_HOME/logs" && pwd)"
 export PYTHONUNBUFFERED=1
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 EOF
