@@ -31,17 +31,19 @@ const apiClient = axios.create({
 })
 
 // Set baseURL dynamically on each request to ensure we get current hostname
+// This ensures we always use the current hostname, even if accessed from remote IP
 apiClient.interceptors.request.use(config => {
-  if (!config.baseURL) {
-    config.baseURL = getApiBaseUrl()
-  }
+  // Always recalculate baseURL to get current hostname
+  config.baseURL = getApiBaseUrl()
+  console.log('API request to:', config.baseURL + (config.url || ''))
   return config
 })
 
-// Set initial baseURL
+// Set initial baseURL (will be overridden by interceptor, but useful for logging)
 const API_BASE_URL = getApiBaseUrl()
 apiClient.defaults.baseURL = API_BASE_URL
-console.log('Axios API client configured with baseURL:', apiClient.defaults.baseURL)
+console.log('Axios API client initialized. Base URL will be set dynamically per request.')
+console.log('Initial baseURL:', apiClient.defaults.baseURL)
 
 // Add response interceptor for better error handling
 apiClient.interceptors.response.use(
@@ -54,7 +56,8 @@ apiClient.interceptors.response.use(
     } else if (error.request) {
       // Request made but no response (network error)
       console.error('Network Error: No response from server', error.request)
-      error.message = `Cannot connect to backend at ${API_BASE_URL}. Is the backend running?`
+      const currentApiUrl = getApiBaseUrl()
+      error.message = `Cannot connect to backend at ${currentApiUrl}. Is the backend running?`
     } else {
       // Something else happened
       console.error('Request Error:', error.message)
