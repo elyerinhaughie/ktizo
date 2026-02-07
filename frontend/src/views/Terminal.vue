@@ -42,12 +42,27 @@ export default {
     this.initTerminal()
     this.connect()
 
+    // Use a debounced resize observer to prevent excessive resizing
+    let resizeTimeout
     this.resizeObserver = new ResizeObserver(() => {
-      if (this.fitAddon) {
-        this.fitAddon.fit()
-      }
+      clearTimeout(resizeTimeout)
+      resizeTimeout = setTimeout(() => {
+        if (this.fitAddon && this.$refs.terminalContainer) {
+          // Ensure container has dimensions before fitting
+          const rect = this.$refs.terminalContainer.getBoundingClientRect()
+          if (rect.width > 0 && rect.height > 0) {
+            this.fitAddon.fit()
+          }
+        }
+      }, 100)
     })
     this.resizeObserver.observe(this.$refs.terminalContainer)
+    
+    // Also observe the main content area in case it changes
+    const mainContent = document.querySelector('.main-content')
+    if (mainContent) {
+      this.resizeObserver.observe(mainContent)
+    }
   },
   beforeUnmount() {
     if (this.resizeObserver) {
@@ -93,7 +108,18 @@ export default {
       this.fitAddon = new FitAddon()
       this.term.loadAddon(this.fitAddon)
       this.term.open(this.$refs.terminalContainer)
-      this.fitAddon.fit()
+      
+      // Fit terminal after a short delay to ensure container has dimensions
+      this.$nextTick(() => {
+        setTimeout(() => {
+          if (this.fitAddon && this.$refs.terminalContainer) {
+            const rect = this.$refs.terminalContainer.getBoundingClientRect()
+            if (rect.width > 0 && rect.height > 0) {
+              this.fitAddon.fit()
+            }
+          }
+        }, 100)
+      })
 
       this.term.onData((data) => {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -149,10 +175,14 @@ export default {
 .terminal-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 60px);
+  height: calc(100vh - 4rem);
+  min-height: 400px;
   background: #1a1b26;
-  margin: -2rem -1rem 0;
+  margin: -2rem;
   padding: 0;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .terminal-header {
@@ -221,9 +251,22 @@ export default {
   flex: 1;
   padding: 4px;
   overflow: hidden;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
 }
 
 .terminal-container :deep(.xterm) {
   height: 100%;
+  width: 100%;
+}
+
+.terminal-container :deep(.xterm-viewport) {
+  width: 100% !important;
+}
+
+.terminal-container :deep(.xterm-screen) {
+  width: 100% !important;
 }
 </style>
