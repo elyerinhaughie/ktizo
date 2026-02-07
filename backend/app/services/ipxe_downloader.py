@@ -14,14 +14,29 @@ class IPXEDownloader:
         
         # Use provided TFTP root, or get from database/environment, or use default
         if tftp_root:
-            self.tftp_root = Path(tftp_root) / "pxe"
+            tftp_path = Path(tftp_root) / "pxe"
         else:
             # Try to get from environment or config
             tftp_root_env = os.getenv("TFTP_ROOT", settings.TFTP_ROOT)
-            self.tftp_root = Path(tftp_root_env) / "pxe"
+            tftp_path = Path(tftp_root_env) / "pxe"
         
-        # Create TFTP PXE directory
-        self.tftp_root.mkdir(parents=True, exist_ok=True)
+        # Create TFTP PXE directory with proper permissions
+        try:
+            tftp_path.mkdir(parents=True, exist_ok=True)
+            # Ensure directory is writable
+            if not os.access(tftp_path, os.W_OK):
+                raise PermissionError(f"Cannot write to TFTP directory: {tftp_path}")
+            self.tftp_root = tftp_path
+        except PermissionError:
+            # Fallback to compiled directory if we can't write to TFTP root
+            logger.warning(f"Cannot write to TFTP root {tftp_path}, using compiled directory instead")
+            compiled_dir = os.getenv("COMPILED_DIR", settings.COMPILED_DIR)
+            fallback_path = Path(compiled_dir) / "pxe"
+            if not fallback_path.is_absolute():
+                fallback_path = Path(__file__).parent.parent.parent.parent.parent / fallback_path
+            fallback_path.mkdir(parents=True, exist_ok=True)
+            self.tftp_root = fallback_path
+            logger.info(f"Using fallback directory: {self.tftp_root}")
 
         # iPXE bootloader files needed (name on boot.ipxe.org → local name)
         self.bootloader_files = {
