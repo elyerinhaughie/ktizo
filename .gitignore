@@ -205,3 +205,19 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Ktizo
+# Compiled configurations (auto-generated from templates)
+compiled/**/*.conf
+compiled/**/*.yaml
+compiled/**/*.yml
+!compiled/**/.gitkeep
+
+# Runtime data
+data/
+
+# Pre-downloaded binaries
+backend/talosctl
+
+# IDE
+.idea/

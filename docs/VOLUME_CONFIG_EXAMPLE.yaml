@@ -1,0 +1,105 @@
+# Example Multi-Document Talos Configuration with VolumeConfig
+# This shows the actual generated output when Volume Configuration is enabled
+
+# ============================================================================
+# DOCUMENT 1: MachineConfig
+# ============================================================================
+version: v1alpha1
+debug: false
+persist: true
+machine:
+  type: worker
+  token: vytu31.tu3onj1to5kv7o4a
+  ca:
+    crt: LS0tLS1CRUdJTi...
+    key: ''
+  certSANs: []
+  kubelet:
+    image: ghcr.io/siderolabs/kubelet:v1.35.0
+    defaultRuntimeSeccompProfileEnabled: true
+    disableManifestsDirectory: true
+  network:
+    hostname: worker-node-01
+    interfaces:
+    - deviceSelector:
+        hardwareAddr: 6c:4b:90:8b:a1:6d
+      addresses:
+      - 10.0.128.10/24
+  install:
+    disk: /dev/sda
+    image: ghcr.io/siderolabs/installer:latest
+    wipe: false
+    grubUseUKICmdline: true
+  features:
+    diskQuotaSupport: true
+    kubePrism:
+      enabled: true
+      port: 7445
+    hostDNS:
+      enabled: true
+      forwardKubeDNSToHost: true
+
+cluster:
+  id: Vh3Mq38-DV6pzosnWWHFzKFC3IB-9OwW6oycgwB4W1g=
+  secret: 3mfN1DAIr/guAlQ4AHXfeT0BgQ+92aTrHlcRe4+c36o=
+  controlPlane:
+    endpoint: https://10.0.128.1:6443
+  clusterName: safewords
+  network:
+    dnsDomain: cluster.local
+    podSubnets:
+    - 10.244.0.0/16
+    serviceSubnets:
+    - 10.96.0.0/12
+  token: c01937.mbwklw6z7rkaj0pc
+  ca:
+    crt: LS0tLS1CRUdJTi...
+    key: ''
+  discovery:
+    enabled: true
+    registries:
+      kubernetes:
+        disabled: true
+      service: {}
+
+---
+# ============================================================================
+# DOCUMENT 2: VolumeConfig for EPHEMERAL
+# ============================================================================
+apiVersion: v1alpha1
+kind: VolumeConfig
+name: EPHEMERAL
+provisioning:
+  minSize: 2GB
+  maxSize: 100GB
+  grow: false
+
+# ============================================================================
+# Result After Installation
+# ============================================================================
+# Disk: /dev/sda (1TB total)
+# ├── EFI        ~100MB
+# ├── META       ~1MB
+# ├── STATE      ~100MB
+# ├── EPHEMERAL  100GB    ← Limited by VolumeConfig
+# └── Unpartitioned ~900GB ← Available for Rook/Ceph
+#
+# Without VolumeConfig, EPHEMERAL would consume all ~900GB
+# ============================================================================
+
+# ============================================================================
+# Example with Disk Selector (Advanced)
+# ============================================================================
+# If you want EPHEMERAL on NVMe drive instead of default disk:
+#
+# ---
+# apiVersion: v1alpha1
+# kind: VolumeConfig
+# name: EPHEMERAL
+# provisioning:
+#   diskSelector:
+#     match: disk.transport == 'nvme'
+#   minSize: 2GB
+#   maxSize: 100GB
+#   grow: false
+# ============================================================================

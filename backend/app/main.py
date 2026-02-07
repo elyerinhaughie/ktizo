@@ -1,0 +1,91 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.api import network_router, cluster_router, device_router, volume_router
+from app.db.database import init_db, SessionLocal
+from app.services.talos_downloader import talos_downloader
+from app.services.ipxe_downloader import ipxe_downloader
+from app.crud import network as network_crud
+import logging
+
+logger = logging.getLogger(__name__)
+
+app = FastAPI(
+    title="Ktizo API",
+    description="PXE-based deployment system for Talos Linux on Kubernetes",
+    version="0.1.0"
+)
+
+# Initialize database on startup
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+
+    # Download iPXE bootloader files if missing (one-time setup)
+    try:
+        logger.info("Checking for iPXE bootloader files...")
+        if not ipxe_downloader.check_all_bootloaders_exist():
+            logger.info("iPXE bootloader files missing, downloading...")
+            success, errors = ipxe_downloader.download_all_bootloaders()
+            if success:
+                logger.info("Successfully downloaded all iPXE bootloader files")
+            else:
+                logger.error(f"Failed to download some iPXE bootloaders: {'; '.join(errors)}")
+        else:
+            logger.info("All iPXE bootloader files already present")
+    except Exception as e:
+        logger.error(f"Error checking iPXE bootloader files on startup: {e}")
+
+    # Check if Talos boot files exist for the configured version
+    db = SessionLocal()
+    try:
+        settings = network_crud.get_network_settings(db)
+        if settings and settings.talos_version:
+            version = settings.talos_version
+            logger.info(f"Checking for Talos {version} boot files...")
+
+            # Check if files exist
+            vmlinuz_exists = talos_downloader.file_exists(version, "vmlinuz-amd64")
+            initramfs_exists = talos_downloader.file_exists(version, "initramfs-amd64.xz")
+
+            if not vmlinuz_exists or not initramfs_exists:
+                logger.info(f"Talos {version} files missing, downloading...")
+                success, errors = talos_downloader.download_talos_files(version)
+                if success:
+                    logger.info(f"Successfully downloaded Talos {version} boot files")
+                else:
+                    logger.error(f"Failed to download Talos files: {'; '.join(errors)}")
+            else:
+                logger.info(f"Talos {version} boot files already present")
+    except Exception as e:
+        logger.error(f"Error checking Talos files on startup: {e}")
+    finally:
+        db.close()
+
+# CORS middleware for Vue frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include routers
+app.include_router(network_router.router, prefix="/api/v1/network", tags=["network"])
+app.include_router(cluster_router.router, prefix="/api/v1/cluster", tags=["cluster"])
+app.include_router(device_router.router, prefix="/api/v1", tags=["devices"])
+app.include_router(volume_router.router, prefix="/api/v1/volumes", tags=["volumes"])
+# Also include device_router without prefix for /talos/configs route (used by iPXE)
+app.include_router(device_router.router, prefix="", tags=["talos-configs"])
+
+@app.get("/")
+async def root():
+    return {
+        "message": "Ktizo API",
+        "version": "0.1.0",
+        "docs": "/docs"
+    }
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}

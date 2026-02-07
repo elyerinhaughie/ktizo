@@ -1,0 +1,409 @@
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+from app.db.database import get_db
+from app.schemas.cluster import (
+    ClusterSettingsResponse,
+    ClusterSettingsCreate,
+    ClusterSettingsUpdate,
+    GenerateSecretsRequest,
+    GenerateSecretsResponse
+)
+from app.crud import cluster as cluster_crud
+import subprocess
+import tempfile
+from pathlib import Path
+
+router = APIRouter()
+
+@router.get("/settings", response_model=ClusterSettingsResponse)
+async def get_cluster_settings(db: Session = Depends(get_db)):
+    """Get current cluster settings"""
+    settings = cluster_crud.get_cluster_settings(db)
+    if not settings:
+        raise HTTPException(status_code=404, detail="Cluster settings not found. Please create settings first.")
+    return settings
+
+@router.post("/settings", response_model=ClusterSettingsResponse)
+async def create_cluster_settings(settings: ClusterSettingsCreate, db: Session = Depends(get_db)):
+    """Create cluster settings and regenerate Talos base configs"""
+    existing = cluster_crud.get_cluster_settings(db)
+    if existing:
+        raise HTTPException(status_code=400, detail="Cluster settings already exist. Use PUT to update.")
+
+    created = cluster_crud.create_cluster_settings(db, settings)
+
+    # Automatically regenerate base Talos configs if secrets exist
+    try:
+        await generate_cluster_config(db)
+    except Exception as e:
+        # Log but don't fail - configs can be generated later
+        print(f"Warning: Could not auto-generate configs: {e}")
+
+    return created
+
+@router.put("/settings/{settings_id}", response_model=ClusterSettingsResponse)
+async def update_cluster_settings(settings_id: int, settings: ClusterSettingsUpdate, db: Session = Depends(get_db)):
+    """Update cluster settings and regenerate Talos base configs and device configs"""
+    from app.crud import device as device_crud
+    from app.db.models import DeviceStatus
+    from app.services.config_generator import ConfigGenerator
+
+    updated = cluster_crud.update_cluster_settings(db, settings_id, settings)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Cluster settings not found")
+
+    # Automatically regenerate base Talos configs after settings update
+    try:
+        await generate_cluster_config(db)
+
+        # Regenerate all device-specific configs
+        config_generator = ConfigGenerator()
+        approved_devices = device_crud.get_devices_by_status(db, DeviceStatus.APPROVED, skip=0, limit=1000)
+        regenerated_count = 0
+        for device in approved_devices:
+            if config_generator.generate_device_config(device):
+                regenerated_count += 1
+
+        print(f"Regenerated {regenerated_count} device configs after cluster settings update")
+    except HTTPException as e:
+        # Log but don't fail - configs can be generated later
+        print(f"Warning: Could not auto-generate configs: {e.detail}")
+    except Exception as e:
+        # Log but don't fail - configs can be generated later
+        import traceback
+        print(f"Warning: Could not auto-generate configs: {e}")
+        print(f"Full traceback: {traceback.format_exc()}")
+
+    return updated
+
+@router.post("/config/generate")
+async def generate_cluster_config(db: Session = Depends(get_db)):
+    """Generate full Talos cluster configuration using talosctl gen config"""
+    try:
+        # Get cluster settings
+        settings = cluster_crud.get_cluster_settings(db)
+        if not settings:
+            raise HTTPException(status_code=404, detail="Cluster settings not found. Please configure cluster first.")
+
+        # Output directory for base talos templates
+        base_dir = Path("/templates") / "base"
+        base_dir.mkdir(parents=True, exist_ok=True)
+
+        # Check if secrets already exist
+        secrets_file = base_dir / "secrets.yaml"
+        has_existing_secrets = secrets_file.exists()
+
+        # Run talosctl gen config
+        cmd = [
+            "talosctl", "gen", "config",
+            settings.cluster_name,
+            f"https://{settings.cluster_endpoint}:6443",
+            "--output-dir", str(base_dir),
+            "--kubernetes-version", settings.kubernetes_version,
+            "--force",  # Allow overwriting existing configs during regeneration
+        ]
+
+        # Use existing secrets if they exist (important for regeneration)
+        if has_existing_secrets:
+            cmd.extend(["--with-secrets", str(secrets_file)])
+
+        # Add additional flags if configured
+        if settings.install_disk:
+            cmd.extend(["--install-disk", settings.install_disk])
+        if settings.install_image:
+            cmd.extend(["--install-image", settings.install_image])
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        if result.returncode != 0:
+            print(f"talosctl gen config failed with return code {result.returncode}")
+            print(f"Command: {' '.join(cmd)}")
+            print(f"STDOUT: {result.stdout}")
+            print(f"STDERR: {result.stderr}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to generate config: {result.stderr or result.stdout or 'Unknown error'}"
+            )
+
+        # Patch ALL Kubernetes component versions to ensure they match user-defined version
+        import yaml
+        # Ensure version has 'v' prefix
+        k8s_version = settings.kubernetes_version if settings.kubernetes_version.startswith('v') else f'v{settings.kubernetes_version}'
+
+        for config_file in ["controlplane.yaml", "worker.yaml"]:
+            config_path = base_dir / config_file
+            if config_path.exists():
+                with open(config_path, 'r') as f:
+                    config = yaml.safe_load(f)
+
+                # Patch machine-level kubelet version
+                if 'machine' in config:
+                    if 'kubelet' not in config['machine']:
+                        config['machine']['kubelet'] = {}
+                    config['machine']['kubelet']['image'] = f'ghcr.io/siderolabs/kubelet:{k8s_version}'
+
+                # Patch cluster-level Kubernetes component images (controlplane only)
+                if config_file == "controlplane.yaml" and 'cluster' in config:
+                    # Patch API server image
+                    if 'apiServer' not in config['cluster']:
+                        config['cluster']['apiServer'] = {}
+                    config['cluster']['apiServer']['image'] = f'registry.k8s.io/kube-apiserver:{k8s_version}'
+
+                    # Patch controller manager image
+                    if 'controllerManager' not in config['cluster']:
+                        config['cluster']['controllerManager'] = {}
+                    config['cluster']['controllerManager']['image'] = f'registry.k8s.io/kube-controller-manager:{k8s_version}'
+
+                    # Patch scheduler image
+                    if 'scheduler' not in config['cluster']:
+                        config['cluster']['scheduler'] = {}
+                    config['cluster']['scheduler']['image'] = f'registry.k8s.io/kube-scheduler:{k8s_version}'
+
+                    # Patch proxy image
+                    if 'proxy' not in config['cluster']:
+                        config['cluster']['proxy'] = {}
+                    config['cluster']['proxy']['image'] = f'registry.k8s.io/kube-proxy:{k8s_version}'
+
+                # Write back the patched config
+                with open(config_path, 'w') as f:
+                    yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+                print(f"Patched {config_file} with Kubernetes version {k8s_version}")
+
+        # Read generated files from templates/base
+        generated_files = {
+            "controlplane": (base_dir / "controlplane.yaml").read_text() if (base_dir / "controlplane.yaml").exists() else None,
+            "worker": (base_dir / "worker.yaml").read_text() if (base_dir / "worker.yaml").exists() else None,
+            "talosconfig": (base_dir / "talosconfig").read_text() if (base_dir / "talosconfig").exists() else None,
+        }
+
+        # Save secrets to database if they exist
+        secrets_file = base_dir / "secrets.yaml"
+        if secrets_file.exists():
+            secrets_content = secrets_file.read_text()
+            cluster_crud.update_cluster_settings(
+                db,
+                settings.id,
+                ClusterSettingsUpdate(secrets_file=secrets_content)
+            )
+            generated_files["secrets"] = secrets_content
+
+        return {
+            "message": "Cluster configuration generated successfully in templates/base/",
+            "output_dir": str(base_dir),
+            "files": generated_files,
+            "command": " ".join(cmd)
+        }
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="talosctl command timed out")
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail="talosctl not found. Please ensure talosctl is installed in the container."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate config: {str(e)}")
+
+@router.post("/secrets/generate", response_model=GenerateSecretsResponse)
+async def generate_secrets(request: GenerateSecretsRequest, db: Session = Depends(get_db)):
+    """Generate only Talos secrets using talosctl (standalone)"""
+    try:
+        # Output to templates/base
+        base_dir = Path("/templates") / "base"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        secrets_file = base_dir / "secrets.yaml"
+
+        # Run talosctl gen secrets (with --force to overwrite existing)
+        result = subprocess.run(
+            ["talosctl", "gen", "secrets", "-o", str(secrets_file), "--force"],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to generate secrets: {result.stderr}"
+            )
+
+        # Read the generated secrets
+        secrets_content = secrets_file.read_text()
+
+        # Update cluster settings with secrets if they exist
+        cluster_settings = cluster_crud.get_cluster_settings(db)
+        if cluster_settings:
+            cluster_crud.update_cluster_settings(
+                db,
+                cluster_settings.id,
+                ClusterSettingsUpdate(secrets_file=secrets_content)
+            )
+
+        return GenerateSecretsResponse(
+            secrets=secrets_content,
+            message=f"Secrets generated successfully and saved to {secrets_file}"
+        )
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="talosctl command timed out")
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail="talosctl not found. Please ensure talosctl is installed in the container."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate secrets: {str(e)}")
+
+@router.post("/bootstrap")
+async def bootstrap_cluster(db: Session = Depends(get_db)):
+    """Bootstrap the Talos cluster using the first control plane node"""
+    try:
+        from app.crud import device as device_crud
+        from app.db.models import DeviceStatus
+
+        # Check if cluster settings exist
+        settings = cluster_crud.get_cluster_settings(db)
+        if not settings:
+            raise HTTPException(
+                status_code=404,
+                detail="Cluster settings not found. Please configure cluster settings first."
+            )
+
+        # Check if talosconfig exists
+        base_dir = Path("/templates") / "base"
+        talosconfig_path = base_dir / "talosconfig"
+
+        if not talosconfig_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="Talosconfig not found. Please generate cluster configuration first."
+            )
+
+        # Get all approved control plane devices
+        all_devices = device_crud.get_devices_by_status(db, DeviceStatus.APPROVED, skip=0, limit=1000)
+        controlplane_devices = [d for d in all_devices if d.role == "controlplane"]
+
+        if not controlplane_devices:
+            raise HTTPException(
+                status_code=400,
+                detail="No approved control plane nodes found. Please approve at least one control plane node first."
+            )
+
+        # Use the first control plane node for bootstrapping
+        bootstrap_node = controlplane_devices[0]
+        bootstrap_ip = bootstrap_node.ip_address or settings.cluster_endpoint
+
+        # Run talosctl bootstrap with endpoints parameter
+        result = subprocess.run(
+            [
+                "talosctl", "bootstrap",
+                "--talosconfig", str(talosconfig_path),
+                "--nodes", bootstrap_ip,
+                "--endpoints", settings.cluster_endpoint
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to bootstrap cluster: {result.stderr}"
+            )
+
+        return {
+            "message": f"Cluster bootstrapped successfully using node {bootstrap_node.hostname or bootstrap_node.mac_address} ({bootstrap_ip})",
+            "bootstrap_node": {
+                "hostname": bootstrap_node.hostname,
+                "mac_address": bootstrap_node.mac_address,
+                "ip_address": bootstrap_ip
+            },
+            "output": result.stdout
+        }
+
+    except HTTPException:
+        raise
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=504,
+            detail="Bootstrap command timed out. The cluster may still be initializing."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to bootstrap cluster: {str(e)}")
+
+@router.get("/kubeconfig")
+async def download_kubeconfig(db: Session = Depends(get_db)):
+    """Download the kubeconfig file by retrieving it from the Talos cluster"""
+    try:
+        # Check if cluster settings exist
+        settings = cluster_crud.get_cluster_settings(db)
+        if not settings:
+            raise HTTPException(
+                status_code=404,
+                detail="Cluster settings not found. Please configure cluster settings first."
+            )
+
+        # Check if talosconfig exists (needed to retrieve kubeconfig)
+        base_dir = Path("/templates") / "base"
+        talosconfig_path = base_dir / "talosconfig"
+
+        if not talosconfig_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="Talosconfig not found. Please generate cluster configuration first."
+            )
+
+        # Create a temporary directory for the kubeconfig
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            kubeconfig_path = Path(tmp_dir) / "kubeconfig"
+
+            # Retrieve kubeconfig from the cluster using talosctl
+            # This requires the cluster to be bootstrapped and running
+            result = subprocess.run(
+                [
+                    "talosctl", "kubeconfig",
+                    "--talosconfig", str(talosconfig_path),
+                    "--nodes", settings.cluster_endpoint,
+                    str(kubeconfig_path)
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if result.returncode != 0:
+                # Check if it's because cluster isn't bootstrapped yet
+                if "connection refused" in result.stderr.lower() or "no such host" in result.stderr.lower():
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Cannot connect to cluster. Please ensure the cluster is bootstrapped and at least one control plane node is running."
+                    )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to retrieve kubeconfig: {result.stderr}"
+                )
+
+            # Return the file as a download
+            return FileResponse(
+                path=str(kubeconfig_path),
+                filename="kubeconfig.yaml",
+                media_type="application/x-yaml"
+            )
+
+    except HTTPException:
+        raise
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=504,
+            detail="Request timed out while retrieving kubeconfig from cluster"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download kubeconfig: {str(e)}")
