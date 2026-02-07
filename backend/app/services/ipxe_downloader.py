@@ -93,11 +93,12 @@ class IPXEDownloader:
                 # Try to fix permissions if we're root
                 if os.getuid() == 0:
                     try:
-                        import stat
-                        # Ensure directory is writable by root
+                        # Ensure directory is writable by root (755)
                         os.chmod(output_path.parent, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-                    except Exception:
-                        pass  # Ignore chmod errors, try to write anyway
+                        # Ensure directory is owned by root
+                        os.chown(output_path.parent, 0, 0)
+                    except Exception as chmod_err:
+                        logger.debug(f"Could not set directory permissions (non-fatal): {chmod_err}")
                 
                 with open(output_path, 'wb') as f:
                     f.write(response.content)
