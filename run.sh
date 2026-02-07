@@ -456,10 +456,21 @@ if [ -f "$SCRIPT_DIR/watch-dnsmasq.sh" ]; then
     if pgrep -f "watch-dnsmasq.sh" &>/dev/null; then
         echo -e "${YELLOW}⚠${NC}  Config watcher already running"
     else
+        # Set VM IP if configured (for remote deployment)
+        if [ -n "$KTIZO_VM_IP" ]; then
+            export KTIZO_VM_IP
+            export KTIZO_VM_USER="${KTIZO_VM_USER:-root}"
+            echo "   Deploying to VM: $KTIZO_VM_USER@$KTIZO_VM_IP"
+        fi
+        
         nohup "$SCRIPT_DIR/watch-dnsmasq.sh" > "$LOGS_DIR/watch-dnsmasq.log" 2>&1 &
         WATCHER_PID=$!
         echo "$WATCHER_PID" > "$SCRIPT_DIR/.watcher.pid"
         echo -e "${GREEN}✓${NC} Config watcher started (PID: $WATCHER_PID)"
+        
+        if [ -n "$KTIZO_VM_IP" ]; then
+            echo "   To deploy config manually: ./deploy-dnsmasq-to-vm.sh"
+        fi
     fi
 else
     echo -e "${YELLOW}⚠${NC}  watch-dnsmasq.sh not found, skipping"
