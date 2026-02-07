@@ -9,23 +9,36 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 class TalosDownloader:
-    def __init__(self):
+    def __init__(self, tftp_root: str = None):
         self.base_url = "https://github.com/siderolabs/talos/releases/download"
         
-        # Use environment variable if set, otherwise config, otherwise Docker path
-        compiled_dir = os.getenv("COMPILED_DIR", settings.COMPILED_DIR)
-        output_dir = Path(compiled_dir) / "pxe" / "talos"
+        # Use provided TFTP root, or get from database/environment, or use default
+        if tftp_root:
+            tftp_talos_dir = Path(tftp_root) / "pxe" / "talos"
+        else:
+            # Try to get from environment or config
+            tftp_root_env = os.getenv("TFTP_ROOT", settings.TFTP_ROOT)
+            tftp_talos_dir = Path(tftp_root_env) / "pxe" / "talos"
         
-        if not output_dir.is_absolute():
-            # Assume relative to project root
-            output_dir = Path(__file__).parent.parent.parent.parent.parent / output_dir
-        
-        # Fallback to Docker path if not set
-        if not output_dir.exists() and not os.getenv("COMPILED_DIR"):
-            output_dir = Path("/compiled") / "pxe" / "talos"
-        
-        self.output_dir = output_dir
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        # Create TFTP Talos directory with proper permissions
+        try:
+            tftp_talos_dir.mkdir(parents=True, exist_ok=True)
+            # Ensure directory is writable
+            if not os.access(tftp_talos_dir, os.W_OK):
+                raise PermissionError(f"Cannot write to TFTP Talos directory: {tftp_talos_dir}")
+            self.output_dir = tftp_talos_dir
+            logger.info(f"Using TFTP root for Talos files: {self.output_dir}")
+        except (PermissionError, OSError) as e:
+            # Fallback to compiled directory if we can't write to TFTP root
+            logger.warning(f"Cannot write to TFTP root {tftp_talos_dir}: {e}")
+            logger.warning("Falling back to compiled directory - files will need to be manually copied to TFTP root")
+            compiled_dir = os.getenv("COMPILED_DIR", settings.COMPILED_DIR)
+            fallback_path = Path(compiled_dir) / "pxe" / "talos"
+            if not fallback_path.is_absolute():
+                fallback_path = Path(__file__).parent.parent.parent.parent.parent / fallback_path
+            fallback_path.mkdir(parents=True, exist_ok=True)
+            self.output_dir = fallback_path
+            logger.info(f"Using fallback directory: {self.output_dir}")
 
     def get_file_path(self, version: str, filename: str) -> Path:
         """Get the local file path for a Talos file"""

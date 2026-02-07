@@ -51,13 +51,19 @@ async def startup_event():
         logger.error(f"Error checking iPXE bootloader files on startup: {e}")
 
     # Check if Talos boot files exist for the configured version
+    # Files are downloaded directly to TFTP root since we're running as root
     db = SessionLocal()
     try:
-        settings = network_crud.get_network_settings(db)
-        if settings and settings.talos_version:
-            version = settings.talos_version
-            logger.info(f"Checking for Talos {version} boot files...")
-
+        network_settings = network_crud.get_network_settings(db)
+        if network_settings and network_settings.talos_version:
+            version = network_settings.talos_version
+            tftp_root = network_settings.tftp_root if network_settings else "/var/lib/tftpboot"
+            logger.info(f"Checking for Talos {version} boot files in TFTP root: {tftp_root}")
+            
+            # Initialize downloader with TFTP root (downloads directly there)
+            from app.services.talos_downloader import TalosDownloader
+            talos_downloader = TalosDownloader(tftp_root=tftp_root)
+            
             # Check if files exist
             vmlinuz_exists = talos_downloader.file_exists(version, "vmlinuz-amd64")
             initramfs_exists = talos_downloader.file_exists(version, "initramfs-amd64.xz")
@@ -66,11 +72,11 @@ async def startup_event():
                 logger.info(f"Talos {version} files missing, downloading...")
                 success, errors = talos_downloader.download_talos_files(version)
                 if success:
-                    logger.info(f"Successfully downloaded Talos {version} boot files")
+                    logger.info(f"Successfully downloaded Talos {version} boot files to TFTP root")
                 else:
                     logger.error(f"Failed to download Talos files: {'; '.join(errors)}")
             else:
-                logger.info(f"Talos {version} boot files already present")
+                logger.info(f"Talos {version} boot files already present in TFTP root")
     except Exception as e:
         logger.error(f"Error checking Talos files on startup: {e}")
     finally:

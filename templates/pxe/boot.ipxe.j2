@@ -211,8 +211,10 @@ echo ERROR: Kernel Load Failed
 echo ========================================
 echo Failed to load: ${kernel_url}
 echo Check if vmlinuz-amd64-${version} exists in /var/lib/tftpboot/pxe/talos/
-sleep 10
-shell
+echo
+echo Exiting to prevent boot loop...
+sleep 5
+exit
 
 :initrd_error
 echo ========================================
@@ -220,5 +222,7 @@ echo ERROR: Initrd Load Failed
 echo ========================================
 echo Failed to load: ${initrd_url}
 echo Check if initramfs-amd64-${version}.xz exists in /var/lib/tftpboot/pxe/talos/
-sleep 10
-shell
+echo
+echo Exiting to prevent boot loop...
+sleep 5
+exit
