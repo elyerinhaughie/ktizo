@@ -1,19 +1,37 @@
 #!/bin/bash
 # Watch for dnsmasq config changes and reload dnsmasq
-# Native version (no Docker)
+# Supports both local and remote VM deployment
 
 set -e
 
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    echo "Error: This script must be run as root"
-    echo "Please run: sudo $0"
-    exit 1
-fi
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPILED_DIR="$SCRIPT_DIR/compiled"
+KTIZO_HOME="${KTIZO_HOME:-$HOME/.ktizo}"
+COMPILED_DIR="$KTIZO_HOME/compiled"
 DNSMASQ_CONF="$COMPILED_DIR/dnsmasq/dnsmasq.conf"
+
+# Check if deploying to remote VM
+VM_IP="${KTIZO_VM_IP:-}"
+VM_USER="${KTIZO_VM_USER:-root}"
+
+if [ -n "$VM_IP" ]; then
+    echo "Remote VM mode: $VM_USER@$VM_IP"
+    echo "Using deploy script for config changes"
+    DEPLOY_SCRIPT="$SCRIPT_DIR/deploy-dnsmasq-to-vm.sh"
+    if [ ! -f "$DEPLOY_SCRIPT" ]; then
+        echo "Error: deploy-dnsmasq-to-vm.sh not found"
+        exit 1
+    fi
+    chmod +x "$DEPLOY_SCRIPT"
+else
+    echo "Local mode: reloading dnsmasq on this host"
+    # Check if running as root (required for local dnsmasq)
+    if [ "$EUID" -ne 0 ]; then
+        echo "Error: This script must be run as root for local mode"
+        echo "Please run: sudo $0"
+        echo "Or set KTIZO_VM_IP to deploy to remote VM"
+        exit 1
+    fi
+fi
 
 # Detect OS
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -59,13 +77,19 @@ if [[ "$OS" == "linux" ]]; then
     
     while true; do
         inotifywait -e modify,create,delete "$DNSMASQ_CONF" 2>/dev/null && {
-            echo "[$(date)] Detected config change, reloading dnsmasq..."
-            dnsmasq --test -C "$DNSMASQ_CONF" && {
-                eval "$RELOAD_CMD"
-                echo "[$(date)] DNSMASQ reloaded successfully"
-            } || {
-                echo "[$(date)] ERROR: dnsmasq config test failed, not reloading"
-            }
+            echo "[$(date)] Detected config change..."
+            if [ -n "$VM_IP" ]; then
+                # Deploy to remote VM
+                "$DEPLOY_SCRIPT" "$VM_IP" "$VM_USER"
+            else
+                # Reload local dnsmasq
+                dnsmasq --test -C "$DNSMASQ_CONF" && {
+                    eval "$RELOAD_CMD"
+                    echo "[$(date)] DNSMASQ reloaded successfully"
+                } || {
+                    echo "[$(date)] ERROR: dnsmasq config test failed, not reloading"
+                }
+            fi
         }
     done
 else
@@ -76,13 +100,19 @@ else
     fi
     
     fswatch -o "$DNSMASQ_CONF" | while read; do
-        echo "[$(date)] Detected config change, reloading dnsmasq..."
-        dnsmasq --test -C "$DNSMASQ_CONF" && {
-            eval "$RELOAD_CMD"
-            echo "[$(date)] DNSMASQ reloaded successfully"
-        } || {
-            echo "[$(date)] ERROR: dnsmasq config test failed, not reloading"
-        }
+        echo "[$(date)] Detected config change..."
+        if [ -n "$VM_IP" ]; then
+            # Deploy to remote VM
+            "$DEPLOY_SCRIPT" "$VM_IP" "$VM_USER"
+        else
+            # Reload local dnsmasq
+            dnsmasq --test -C "$DNSMASQ_CONF" && {
+                eval "$RELOAD_CMD"
+                echo "[$(date)] DNSMASQ reloaded successfully"
+            } || {
+                echo "[$(date)] ERROR: dnsmasq config test failed, not reloading"
+            }
+        fi
     done
 fi
 
