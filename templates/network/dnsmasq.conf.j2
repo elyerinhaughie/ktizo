@@ -30,9 +30,12 @@ tftp-root={{ tftp_root | default('/srv/tftp') }}
 tftp-secure
 {% endif %}
 
-# Detect if client is already running iPXE (multiple detection methods)
-dhcp-match=set:ipxe,175
+# Detect if client is already running iPXE
+# Primary method: user-class = "iPXE" (most reliable)
 dhcp-userclass=set:ipxe,iPXE
+# Fallback: DHCP option 175 (iPXE vendor identifier)
+dhcp-match=set:ipxe,175
+# Additional fallback: vendor-class (some iPXE variants)
 dhcp-vendorclass=set:ipxe,iPXE
 
 # Architecture detection
@@ -59,20 +62,36 @@ pxe-service=tag:!ipxe,BC_EFI,"Boot from network (UEFI)",pxe/ipxe-chainboot.efi
 # BOOT FILE LOGIC (SIMPLIFIED)
 # ====================
 
-# If client already has iPXE loaded → send boot.ipxe directly
-# Use HTTP URL for better iPXE auto-execution (iPXE auto-executes HTTP-loaded scripts)
-# Format: http://server-ip:8000/path/to/boot.ipxe (backend serves on port 8000)
-set ipxe_script_path={{ ipxe_boot_script | default('pxe/boot.ipxe') }}
+# ====================
+# BOOT FILE LOGIC (State Machine)
+# ====================
+# Rule: NEVER deliver iPXE binary to clients already running iPXE
+# 
+# State: IS iPXE → deliver script (boot.ipxe via HTTP)
+# State: NOT iPXE → deliver iPXE binary (undionly.kpxe or ipxe.efi)
+
+# If client already has iPXE loaded → send boot.ipxe script directly
+# iPXE auto-executes HTTP-loaded scripts, so no chainloading needed
+# Use HTTP (not TFTP) for better performance and reliability
 dhcp-boot=tag:ipxe,http://{{ server_ip }}:8000/{{ ipxe_boot_script | default('pxe/boot.ipxe') }}
 dhcp-option=tag:ipxe,67,http://{{ server_ip }}:8000/{{ ipxe_boot_script | default('pxe/boot.ipxe') }}
 
-# If client doesn't have iPXE yet → send custom chainboot bootloader
-# Custom bootloader has embedded script that auto-loads boot.ipxe
-# Legacy BIOS (x86) - use chainboot version if available, fallback to standard
+# If client doesn't have iPXE yet → send iPXE binary
+# Use chainboot versions that have embedded scripts to auto-load boot.ipxe
+# This prevents loops and ensures deterministic boot flow
+
+# Legacy BIOS (x86) - use chainboot bootloader with embedded script
 dhcp-boot=tag:!ipxe,tag:bios,pxe/undionly-chainboot.kpxe
+# Fallback to standard if chainboot not available
 dhcp-boot=tag:!ipxe,tag:bios,pxe/undionly.kpxe
 
-# UEFI (all architectures - generic iPXE EFI binary)
+# UEFI (all architectures) - use chainboot EFI with embedded script
+dhcp-boot=tag:!ipxe,tag:efi32,pxe/ipxe-chainboot.efi
+dhcp-boot=tag:!ipxe,tag:efi64,pxe/ipxe-chainboot.efi
+dhcp-boot=tag:!ipxe,tag:efi64-alt,pxe/ipxe-chainboot.efi
+dhcp-boot=tag:!ipxe,tag:efi-arm32,pxe/ipxe-chainboot.efi
+dhcp-boot=tag:!ipxe,tag:efi-arm64,pxe/ipxe-chainboot.efi
+# Fallback to standard if chainboot not available
 dhcp-boot=tag:!ipxe,tag:efi32,pxe/ipxe.efi
 dhcp-boot=tag:!ipxe,tag:efi64,pxe/ipxe.efi
 dhcp-boot=tag:!ipxe,tag:efi64-alt,pxe/ipxe.efi
