@@ -49,9 +49,11 @@ dhcp-option-force=tag:!ipxe,208,f1:00:74:7e:00:00
 pxe-prompt=tag:!ipxe,"{{ pxe_prompt | default('Press F8 for boot menu') }}", {{ pxe_timeout | default(3) }}
 
 # PXE service types (only for non-iPXE clients)
-pxe-service=tag:!ipxe,x86PC,"Boot from network (PXE)",pxe/undionly.kpxe
-pxe-service=tag:!ipxe,x86-64_EFI,"Boot from network (UEFI)",pxe/ipxe.efi
-pxe-service=tag:!ipxe,BC_EFI,"Boot from network (UEFI)",pxe/ipxe.efi
+# NOTE: Use chainboot bootloaders to prevent iPXE loops
+# These bootloaders have embedded scripts that auto-chain to boot.ipxe
+pxe-service=tag:!ipxe,x86PC,"Boot from network (PXE)",pxe/undionly-chainboot.kpxe
+pxe-service=tag:!ipxe,x86-64_EFI,"Boot from network (UEFI)",pxe/ipxe-chainboot.efi
+pxe-service=tag:!ipxe,BC_EFI,"Boot from network (UEFI)",pxe/ipxe-chainboot.efi
 
 # ====================
 # BOOT FILE LOGIC (SIMPLIFIED)
