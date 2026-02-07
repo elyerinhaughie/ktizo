@@ -256,8 +256,15 @@ async def serve_talos_config(mac_address: str):
                     media_type="text/plain",
                 )
 
-        # Update last config download time
-        device_crud.update_config_download_time(db, mac_address)
+        # Update last config download time and get fresh device object
+        # (this ensures we have the latest device state from the database)
+        device = device_crud.update_config_download_time(db, mac_address)
+        if not device:
+            return FastResponse(
+                content=f"# Device {mac_address} not found\n",
+                status_code=404,
+                media_type="text/plain",
+            )
 
         # Reset wipe_on_next_boot flag after config is downloaded
         # (the wipe will happen on next boot when this config is applied)
