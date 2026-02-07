@@ -40,7 +40,16 @@ export default {
   methods: {
     async downloadKubeconfig() {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+        // Use same hostname as current page, with port 8000
+        let apiUrl = import.meta.env.VITE_API_URL
+        if (!apiUrl && typeof window !== 'undefined') {
+          const protocol = window.location.protocol
+          const hostname = window.location.hostname
+          apiUrl = `${protocol}//${hostname}:8000`
+        }
+        if (!apiUrl) {
+          apiUrl = 'http://localhost:8000'
+        }
         const response = await fetch(`${apiUrl}/api/v1/cluster/kubeconfig`)
 
         if (!response.ok) {

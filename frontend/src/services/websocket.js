@@ -16,7 +16,17 @@ class WebSocketService {
       return
     }
 
-    const wsUrl = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace('http', 'ws')
+    // Use same logic as API client to determine WebSocket URL
+    let apiUrl = import.meta.env.VITE_API_URL
+    if (!apiUrl && typeof window !== 'undefined') {
+      const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:'
+      const hostname = window.location.hostname
+      apiUrl = `${protocol}//${hostname}:8000`
+    }
+    if (!apiUrl) {
+      apiUrl = 'http://localhost:8000'
+    }
+    const wsUrl = apiUrl.replace('http', 'ws')
     this.ws = new WebSocket(`${wsUrl}/api/v1/events/ws`)
 
     this.ws.onopen = () => {
