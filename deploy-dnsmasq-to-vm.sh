@@ -75,6 +75,46 @@ scp "$LOCAL_CONFIG" "$VM_USER@$VM_IP:$REMOTE_CONFIG" || {
     exit 1
 }
 
+# Copy iPXE bootloader files to TFTP root
+echo "Copying iPXE bootloader files to TFTP root..."
+LOCAL_PXE_DIR="${KTIZO_HOME:-$HOME/.ktizo}/compiled/pxe"
+REMOTE_TFTP_ROOT="/var/lib/tftpboot"
+REMOTE_PXE_DIR="$REMOTE_TFTP_ROOT/pxe"
+
+# Ensure remote PXE directory exists
+ssh "$VM_USER@$VM_IP" "mkdir -p $REMOTE_PXE_DIR" || {
+    echo -e "${RED}Error:${NC} Failed to create TFTP PXE directory"
+    exit 1
+}
+
+# Copy iPXE bootloader files if they exist locally
+if [ -d "$LOCAL_PXE_DIR" ]; then
+    for file in undionly.kpxe ipxe.efi ipxe.pxe snponly.efi; do
+        if [ -f "$LOCAL_PXE_DIR/$file" ]; then
+            echo "  Copying $file..."
+            scp "$LOCAL_PXE_DIR/$file" "$VM_USER@$VM_IP:$REMOTE_PXE_DIR/" || {
+                echo -e "${YELLOW}Warning:${NC} Failed to copy $file"
+            }
+        fi
+    done
+else
+    echo -e "${YELLOW}Warning:${NC} Local PXE directory not found: $LOCAL_PXE_DIR"
+    echo "  iPXE files may need to be downloaded on the VM"
+fi
+
+# Also copy from VM's compiled directory if it exists (for native installs)
+echo "Checking for iPXE files in VM's compiled directory..."
+ssh "$VM_USER@$VM_IP" "
+    if [ -d /root/.ktizo/compiled/pxe ]; then
+        for file in undionly.kpxe ipxe.efi ipxe.pxe snponly.efi; do
+            if [ -f /root/.ktizo/compiled/pxe/\$file ] && [ ! -f $REMOTE_PXE_DIR/\$file ]; then
+                echo \"  Copying \$file from compiled directory...\"
+                cp /root/.ktizo/compiled/pxe/\$file $REMOTE_PXE_DIR/ || echo \"  Failed to copy \$file\"
+            fi
+        done
+    fi
+" || echo -e "${YELLOW}Warning:${NC} Could not copy files from VM's compiled directory"
+
 # Test config on VM
 echo "Testing config on VM..."
 if ssh "$VM_USER@$VM_IP" "dnsmasq --test -C $REMOTE_CONFIG" 2>&1; then
