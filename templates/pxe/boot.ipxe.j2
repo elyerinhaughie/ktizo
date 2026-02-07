@@ -79,8 +79,14 @@ item --key b boot_local   Boot from local disk
 item --key d wipe         Wipe local disk installation
 item --key s shell        iPXE Shell
 item --gap --
-choose --timeout 10000 --default run selected || goto run
-goto ${selected}
+choose --timeout 10000 --default run selected || set selected run
+# Validate menu selection to prevent invalid goto
+iseq ${selected} run && goto run
+iseq ${selected} boot_local && goto boot_local
+iseq ${selected} wipe && goto wipe
+iseq ${selected} shell && goto shell
+# Default fallback
+goto run
 
 # -------------------------------------------------------------------------------
 
