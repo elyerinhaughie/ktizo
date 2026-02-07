@@ -251,6 +251,13 @@ chain {boot_url} || {{
             
             output_path = self.tftp_root / output_name
             
+            # Try to get makebin if not available
+            if not self.makebin_available:
+                logger.info("makebin not available, attempting to install/build...")
+                if self._install_makebin():
+                    self.makebin_available = True
+                    logger.info("Successfully installed makebin")
+            
             if self.makebin_available:
                 # Use makebin to embed script into bootloader
                 try:
