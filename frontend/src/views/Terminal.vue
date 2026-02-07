@@ -28,6 +28,7 @@ export default {
       resizeObserver: null,
       isFitting: false,
       fitTimeout: null,
+      handleResize: null,
     }
   },
   computed: {
@@ -52,17 +53,31 @@ export default {
     })
   },
   beforeUnmount() {
+    // Clean up all resources when leaving the terminal page
     if (this.fitTimeout) {
       clearTimeout(this.fitTimeout)
+      this.fitTimeout = null
     }
     if (this.resizeObserver) {
       this.resizeObserver.disconnect()
+      this.resizeObserver = null
     }
     if (this.ws) {
       this.ws.close()
+      this.ws = null
     }
     if (this.term) {
       this.term.dispose()
+      this.term = null
+    }
+    if (this.fitAddon) {
+      this.fitAddon = null
+    }
+    
+    // Remove window resize listener if it exists
+    if (this.handleResize) {
+      window.removeEventListener('resize', this.handleResize)
+      this.handleResize = null
     }
   },
   methods: {
@@ -212,7 +227,7 @@ export default {
       })
       
       // Observe window resize
-      const handleResize = () => {
+      this.handleResize = () => {
         if (this.$refs.terminalContainer && !this.isFitting) {
           const sidebar = document.querySelector('.sidebar')
           const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 250
@@ -235,7 +250,7 @@ export default {
         }
       }
       
-      window.addEventListener('resize', handleResize)
+      window.addEventListener('resize', this.handleResize)
       
       const mainContent = document.querySelector('.main-content')
       if (mainContent) {
@@ -302,6 +317,7 @@ export default {
   overflow: hidden;
   box-sizing: border-box;
   position: relative;
+  z-index: 1;
 }
 
 .terminal-header {
