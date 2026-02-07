@@ -115,7 +115,8 @@ async def update_network_settings(settings_id: int, settings: NetworkSettingsUpd
     try:
         from app.crud import cluster as cluster_crud
 
-        ipxe_generator = IPXEGenerator()
+        # Initialize generator with TFTP root (generates directly there)
+        ipxe_generator = IPXEGenerator(tftp_root=updated.tftp_root)
         approved_devices = device_crud.get_devices_by_status(db, DeviceStatus.APPROVED, skip=0, limit=1000)
 
         # Get cluster settings for install_disk

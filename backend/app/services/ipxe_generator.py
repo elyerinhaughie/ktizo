@@ -10,28 +10,47 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 class IPXEGenerator:
-    def __init__(self):
+    def __init__(self, tftp_root: str = None):
         # Use environment variables if set, otherwise use config defaults, otherwise Docker paths
         templates_dir = os.getenv("TEMPLATES_DIR", settings.TEMPLATES_DIR)
-        compiled_dir = os.getenv("COMPILED_DIR", settings.COMPILED_DIR)
         
         templates_path = Path(templates_dir) / "pxe"
         if not templates_path.is_absolute():
             templates_path = Path(__file__).parent.parent.parent.parent.parent / templates_path
         
-        output_path = Path(compiled_dir) / "pxe"
-        if not output_path.is_absolute():
-            output_path = Path(__file__).parent.parent.parent.parent.parent / output_path
-        
         # Fallback to Docker paths if environment not set and relative path doesn't exist
         if not templates_path.exists() and not os.getenv("TEMPLATES_DIR"):
             templates_path = Path("/templates") / "pxe"
-        if not output_path.exists() and not os.getenv("COMPILED_DIR"):
-            output_path = Path("/compiled") / "pxe"
         
         self.templates_dir = templates_path
-        self.output_dir = output_path
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Use provided TFTP root, or get from database/environment, or use default
+        if tftp_root:
+            output_path = Path(tftp_root) / "pxe"
+        else:
+            # Try to get from environment or config
+            tftp_root_env = os.getenv("TFTP_ROOT", settings.TFTP_ROOT)
+            output_path = Path(tftp_root_env) / "pxe"
+        
+        # Create TFTP PXE directory with proper permissions
+        try:
+            output_path.mkdir(parents=True, exist_ok=True)
+            # Ensure directory is writable
+            if not os.access(output_path, os.W_OK):
+                raise PermissionError(f"Cannot write to TFTP directory: {output_path}")
+            self.output_dir = output_path
+            logger.info(f"Using TFTP root for boot.ipxe: {self.output_dir}")
+        except (PermissionError, OSError) as e:
+            # Fallback to compiled directory if we can't write to TFTP root
+            logger.warning(f"Cannot write to TFTP root {output_path}: {e}")
+            logger.warning("Falling back to compiled directory - boot.ipxe will need to be manually copied to TFTP root")
+            compiled_dir = os.getenv("COMPILED_DIR", settings.COMPILED_DIR)
+            fallback_path = Path(compiled_dir) / "pxe"
+            if not fallback_path.is_absolute():
+                fallback_path = Path(__file__).parent.parent.parent.parent.parent / fallback_path
+            fallback_path.mkdir(parents=True, exist_ok=True)
+            self.output_dir = fallback_path
+            logger.info(f"Using fallback directory: {self.output_dir}")
 
         # Set up Jinja2 environment
         self.env = Environment(loader=FileSystemLoader(str(self.templates_dir)))
@@ -94,6 +113,27 @@ class IPXEGenerator:
             try:
                 with open(output_path, 'w') as f:
                     f.write(rendered)
+                
+                # Set proper permissions for dnsmasq/TFTP
+                if os.getuid() == 0:
+                    try:
+                        import stat
+                        import pwd
+                        # Try to find dnsmasq user ID
+                        try:
+                            dnsmasq_user = pwd.getpwnam('dnsmasq')
+                            dnsmasq_uid = dnsmasq_user.pw_uid
+                            dnsmasq_gid = dnsmasq_user.pw_gid
+                        except KeyError:
+                            # dnsmasq user doesn't exist, use root
+                            dnsmasq_uid = 0
+                            dnsmasq_gid = 0
+                        
+                        # 644 permissions: owner read/write, group/others read
+                        os.chmod(output_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+                        os.chown(output_path, dnsmasq_uid, dnsmasq_gid)
+                    except Exception as perm_err:
+                        logger.warning(f"Could not set file permissions (non-fatal): {perm_err}")
             except PermissionError as e:
                 raise Exception(
                     f"Permission denied writing boot.ipxe to {output_path}: {str(e)}. "

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize generators
 config_generator = ConfigGenerator()
-ipxe_generator = IPXEGenerator()
+# Note: ipxe_generator is now created per-request with TFTP root from database
 
 def get_device(db: Session, device_id: int) -> Optional[Device]:
     """Get device by ID"""
@@ -84,6 +84,10 @@ def update_device(db: Session, device_id: int, device_update: DeviceUpdate) -> O
 
         # Regenerate boot.ipxe with updated info
         logger.info("Regenerating boot.ipxe with updated device info")
+        from app.crud import network as network_crud
+        network_settings = network_crud.get_network_settings(db)
+        tftp_root = network_settings.tftp_root if network_settings else "/var/lib/tftpboot"
+        ipxe_generator = IPXEGenerator(tftp_root=tftp_root)
         all_devices = get_devices(db, skip=0, limit=1000)
         server_ip = ipxe_generator.get_server_ip_from_settings(db)
         strict_mode = ipxe_generator.get_strict_mode_from_settings(db)
@@ -108,6 +112,10 @@ def approve_device(db: Session, device_id: int) -> Optional[Device]:
 
     # Regenerate boot.ipxe with all approved devices
     logger.info("Regenerating boot.ipxe with updated device list")
+    from app.crud import network as network_crud
+    network_settings = network_crud.get_network_settings(db)
+    tftp_root = network_settings.tftp_root if network_settings else "/var/lib/tftpboot"
+    ipxe_generator = IPXEGenerator(tftp_root=tftp_root)
     all_devices = get_devices(db, skip=0, limit=1000)
     server_ip = ipxe_generator.get_server_ip_from_settings(db)
     strict_mode = ipxe_generator.get_strict_mode_from_settings(db)
@@ -130,6 +138,10 @@ def reject_device(db: Session, device_id: int) -> Optional[Device]:
 
     # Regenerate boot.ipxe without this device
     logger.info("Regenerating boot.ipxe with updated device list")
+    from app.crud import network as network_crud
+    network_settings = network_crud.get_network_settings(db)
+    tftp_root = network_settings.tftp_root if network_settings else "/var/lib/tftpboot"
+    ipxe_generator = IPXEGenerator(tftp_root=tftp_root)
     all_devices = get_devices(db, skip=0, limit=1000)
     server_ip = ipxe_generator.get_server_ip_from_settings(db)
     strict_mode = ipxe_generator.get_strict_mode_from_settings(db)
@@ -160,6 +172,10 @@ def delete_device(db: Session, device_id: int) -> bool:
 
     # Regenerate boot.ipxe
     logger.info("Regenerating boot.ipxe with updated device list")
+    from app.crud import network as network_crud
+    network_settings = network_crud.get_network_settings(db)
+    tftp_root = network_settings.tftp_root if network_settings else "/var/lib/tftpboot"
+    ipxe_generator = IPXEGenerator(tftp_root=tftp_root)
     all_devices = get_devices(db, skip=0, limit=1000)
     server_ip = ipxe_generator.get_server_ip_from_settings(db)
     strict_mode = ipxe_generator.get_strict_mode_from_settings(db)

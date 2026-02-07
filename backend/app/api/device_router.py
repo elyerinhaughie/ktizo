@@ -531,6 +531,9 @@ async def regenerate_all_configs(db: Session = Depends(get_db)):
         config_count = config_generator.regenerate_all_configs(approved_devices)
 
         # Regenerate boot.ipxe
+        network_settings = network_crud.get_network_settings(db)
+        tftp_root = network_settings.tftp_root if network_settings else "/var/lib/tftpboot"
+        ipxe_generator = IPXEGenerator(tftp_root=tftp_root)
         server_ip = ipxe_generator.get_server_ip_from_settings(db)
         strict_mode = ipxe_generator.get_strict_mode_from_settings(db)
         ipxe_success = ipxe_generator.generate_boot_script(approved_devices, server_ip, strict_mode=strict_mode)
