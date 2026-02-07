@@ -103,6 +103,17 @@ export default {
       this.$nextTick(() => {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
+            // Force container to full width before fitting
+            if (this.$refs.terminalContainer) {
+              const container = this.$refs.terminalContainer
+              const parent = container.parentElement
+              if (parent) {
+                const parentWidth = parent.getBoundingClientRect().width
+                container.style.width = `${parentWidth}px`
+                container.style.minWidth = `${parentWidth}px`
+                container.style.maxWidth = `${parentWidth}px`
+              }
+            }
             this.safeFit()
           })
         })
@@ -185,9 +196,21 @@ export default {
       }
       
       this.isFitting = true
-      const rect = this.$refs.terminalContainer.getBoundingClientRect()
+      const container = this.$refs.terminalContainer
+      const rect = container.getBoundingClientRect()
       
-      if (rect.width > 0 && rect.height > 0) {
+      // Ensure container has full width
+      const parent = container.parentElement
+      if (parent) {
+        const parentWidth = parent.getBoundingClientRect().width
+        if (parentWidth > 0 && rect.width !== parentWidth) {
+          container.style.width = `${parentWidth}px`
+          container.style.minWidth = `${parentWidth}px`
+          container.style.maxWidth = `${parentWidth}px`
+        }
+      }
+      
+      if (rect.width > 100 && rect.height > 100) {
         try {
           this.fitAddon.fit()
         } catch (e) {
@@ -213,9 +236,11 @@ export default {
   background: #1a1b26;
   margin: -2rem;
   padding: 0;
-  width: 100%;
-  min-width: 0;
+  width: calc(100% + 4rem);
+  min-width: 100%;
+  max-width: 100%;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .terminal-header {
@@ -285,21 +310,39 @@ export default {
   padding: 4px;
   overflow: hidden;
   width: 100%;
-  min-width: 0;
+  min-width: 100%;
+  max-width: 100%;
   min-height: 0;
   position: relative;
+  box-sizing: border-box;
 }
 
 .terminal-container :deep(.xterm) {
-  height: 100%;
-  width: 100%;
+  height: 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
 }
 
 .terminal-container :deep(.xterm-viewport) {
   width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
 }
 
 .terminal-container :deep(.xterm-screen) {
   width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+.terminal-container :deep(.xterm-scroll-area) {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.terminal-container :deep(.xterm-rows) {
+  width: 100% !important;
+  max-width: 100% !important;
 }
 </style>
