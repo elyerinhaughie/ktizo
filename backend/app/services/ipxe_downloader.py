@@ -103,16 +103,31 @@ class IPXEDownloader:
                 with open(output_path, 'wb') as f:
                     f.write(response.content)
                 
-                # Set proper permissions on the file (readable by all, writable by owner)
-                # TFTP requires files to be world-readable
+                # Set proper permissions on the file for dnsmasq/TFTP
+                # dnsmasq typically runs as user 'dnsmasq', so files need to be readable by that user
                 if os.getuid() == 0:
                     try:
+                        # Try to find dnsmasq user ID
+                        import pwd
+                        try:
+                            dnsmasq_user = pwd.getpwnam('dnsmasq')
+                            dnsmasq_uid = dnsmasq_user.pw_uid
+                            dnsmasq_gid = dnsmasq_user.pw_gid
+                        except KeyError:
+                            # dnsmasq user doesn't exist, use root
+                            dnsmasq_uid = 0
+                            dnsmasq_gid = 0
+                        
                         # 644 permissions: owner read/write, group/others read
                         os.chmod(output_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
-                        os.chown(output_path, 0, 0)  # root:root
+                        # Owned by dnsmasq user if it exists, otherwise root
+                        os.chown(output_path, dnsmasq_uid, dnsmasq_gid)
+                        
                         # Also ensure parent directory is world-readable and executable (755)
                         os.chmod(output_path.parent, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-                        os.chown(output_path.parent, 0, 0)
+                        os.chown(output_path.parent, dnsmasq_uid, dnsmasq_gid)
+                        
+                        logger.info(f"Set file ownership to {dnsmasq_uid}:{dnsmasq_gid} for dnsmasq access")
                     except Exception as perm_err:
                         logger.warning(f"Could not set file permissions (non-fatal): {perm_err}")
                 
