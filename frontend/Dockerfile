@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY package*.json ./
-RUN npm install
+RUN rm -f package-lock.json && npm install --no-optional || npm install
 
 # Copy application
 COPY . .

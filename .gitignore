@@ -208,10 +208,8 @@ __marimo__/
 
 # Ktizo
 # Compiled configurations (auto-generated from templates)
-compiled/**/*.conf
-compiled/**/*.yaml
-compiled/**/*.yml
-!compiled/**/.gitkeep
+compiled/
+!compiled/.gitkeep
 
 # Runtime data
 data/

@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Architecture
 
 ### Backend (FastAPI)
-- **Language**: Python 3.11
+- **Language**: Python 3.14 (preferred), 3.13, 3.12, or 3.11+
 - **Framework**: FastAPI with SQLAlchemy ORM
 - **Database**: SQLite (mounted at `./data/ktizo.db`)
 - **Key Features**:

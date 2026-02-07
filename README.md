@@ -34,11 +34,31 @@ ktizo/
 
 ## Getting Started
 
-### Prerequisites
+### Installation Options
 
-- Docker and Docker Compose
+#### Option 1: Native Installation (Recommended)
 
-### Running the Stack
+Run directly on your host system - no Docker required:
+
+```bash
+# Run the installation script
+./install.sh
+
+# Start services
+./start.sh
+```
+
+**Advantages:**
+- ✅ No Docker networking issues
+- ✅ Direct access to host network for PXE
+- ✅ Better performance
+- ✅ Simpler debugging
+
+See [INSTALL.md](INSTALL.md) for detailed installation instructions.
+
+#### Option 2: Docker Installation
+
+For containerized deployment:
 
 ```bash
 # Start all services
@@ -50,6 +70,8 @@ docker-compose logs -f
 # Stop all services
 docker-compose down
 ```
+
+**Note:** Docker on macOS has networking limitations for PXE. Native installation is recommended for macOS.
 
 ### Services
 

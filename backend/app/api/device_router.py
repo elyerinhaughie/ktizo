@@ -401,16 +401,43 @@ async def get_device_config(mac_address: str, db: Session = Depends(get_db)):
     Example: http://10.0.5.113/talos/configs/6c:4b:90:8b:a1:6d.yaml
 
     The device role is looked up from the database, so it doesn't need to be in the URL.
+    
+    If strict mode is disabled and device is not approved, returns a default worker config.
     """
     # Register or get device
     device = device_crud.register_or_get_device(db, mac_address)
 
     # Check if device is approved
     if device.status != DeviceStatus.APPROVED:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Device {mac_address} not approved. Current status: {device.status.value}. Please approve in Device Management."
-        )
+        # Check if strict mode is disabled - if so, return default worker config
+        from app.crud import network as network_crud
+        network_settings = network_crud.get_network_settings(db)
+        strict_mode = network_settings.strict_boot_mode if network_settings else True
+        
+        if strict_mode:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Device {mac_address} not approved. Current status: {device.status.value}. Please approve in Device Management."
+            )
+        else:
+            # Strict mode disabled - return default worker config
+            base_dir = Path("/templates") / "base"
+            default_config = base_dir / "worker.yaml"
+            
+            if not default_config.exists():
+                raise HTTPException(
+                    status_code=500,
+                    detail="Default worker configuration not found. Please generate cluster configs first."
+                )
+            
+            config_content = default_config.read_text()
+            return Response(
+                content=config_content,
+                media_type="application/x-yaml",
+                headers={
+                    "Content-Disposition": f"inline; filename={mac_address}.yaml"
+                }
+            )
 
     # Update last config download time
     device_crud.update_config_download_time(db, mac_address)

@@ -7,7 +7,7 @@
 ## Project Overview
 
 **Ktizo** is a PXE-based deployment system for Talos Linux clusters with:
-- FastAPI backend (Python 3.11)
+- FastAPI backend (Python 3.14 preferred, 3.11+ supported)
 - Vue.js frontend
 - DNSMASQ for PXE boot (DHCP proxy + TFTP)
 - Device approval workflow (MAC-based)
