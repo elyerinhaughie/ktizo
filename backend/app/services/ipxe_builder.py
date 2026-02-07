@@ -47,6 +47,9 @@ class IPXEBuilder:
         """
         Create the embedded chainboot script that auto-loads boot.ipxe.
         
+        This script is embedded into the iPXE bootloader and runs automatically
+        when the bootloader loads, preventing menu prompts.
+        
         Args:
             use_http: If True, use HTTP URL; if False, use TFTP
             
@@ -67,16 +70,21 @@ echo Auto-loading boot script from server...
 echo Server: {self.server_ip}
 echo Boot URL: {boot_url}
 
-# Prevent infinite loops
+# Prevent infinite loops - if we've already chainloaded, exit
 isset chainboot_done && exit || set chainboot_done 1
 
-# Auto-chainload the boot script
+# Ensure network is ready
+ifstat net0 || ifopen net0 || echo Network interface ready
+
+# Auto-chainload the boot script (no menu, no prompts)
 chain {boot_url} || {{
     echo ========================================
     echo ERROR: Failed to load boot script
     echo ========================================
     echo Could not load: {boot_url}
     echo Check network connectivity and server availability
+    echo Server IP: {self.server_ip}
+    echo Boot URL: {boot_url}
     sleep 10
     exit
 }}
