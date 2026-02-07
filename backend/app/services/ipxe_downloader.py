@@ -86,14 +86,29 @@ class IPXEDownloader:
             response = requests.get(url, timeout=30)
             response.raise_for_status()
 
-            with open(output_path, 'wb') as f:
-                f.write(response.content)
+            try:
+                with open(output_path, 'wb') as f:
+                    f.write(response.content)
+                logger.info(f"Successfully downloaded {filename} ({len(response.content)} bytes) to {output_path}")
+                return True
+            except PermissionError as pe:
+                error_msg = f"Permission denied writing {filename} to {output_path}: {pe}"
+                logger.error(error_msg)
+                logger.error(f"Directory permissions: {oct(output_path.parent.stat().st_mode)}")
+                logger.error(f"Current user: {os.getuid()} (root=0)")
+                return False
+            except OSError as ose:
+                error_msg = f"OS error writing {filename} to {output_path}: {ose}"
+                logger.error(error_msg)
+                return False
 
-            logger.info(f"Successfully downloaded {filename} ({len(response.content)} bytes) to {output_path}")
-            return True
-
+        except requests.RequestException as re:
+            logger.error(f"Network error downloading {filename}: {re}")
+            return False
         except Exception as e:
             logger.error(f"Failed to download {filename}: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
             return False
 
     def download_all_bootloaders(self) -> Tuple[bool, List[str]]:
