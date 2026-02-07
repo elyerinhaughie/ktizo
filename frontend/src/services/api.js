@@ -1,12 +1,32 @@
 import axios from 'axios'
 
 // Determine API base URL
-// Priority: 1. Environment variable, 2. Current hostname with port 8000, 3. localhost fallback
+// Priority: 1. Current hostname (if not localhost), 2. Environment variable (if not localhost), 3. localhost fallback
 function getApiBaseUrl() {
-  // Check environment variable first
+  // First, try to detect hostname from window.location
+  if (typeof window !== 'undefined' && window.location) {
+    const protocol = window.location.protocol
+    const hostname = window.location.hostname
+    const port = window.location.port
+    
+    // If hostname is not localhost/127.0.0.1, use it (remote access)
+    if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      const apiUrl = `${protocol}//${hostname}:8000`
+      console.log('[API] Using detected remote hostname:', apiUrl, '(hostname:', hostname, ')')
+      return apiUrl
+    }
+  }
+  
+  // Check environment variable, but ignore if it's localhost (for remote access)
   if (import.meta.env.VITE_API_URL) {
-    console.log('[API] Using VITE_API_URL:', import.meta.env.VITE_API_URL)
-    return import.meta.env.VITE_API_URL
+    const envUrl = import.meta.env.VITE_API_URL
+    // Only use env var if it's not localhost (allows override for remote backends)
+    if (!envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
+      console.log('[API] Using VITE_API_URL (non-localhost):', envUrl)
+      return envUrl
+    } else {
+      console.log('[API] Ignoring VITE_API_URL (localhost):', envUrl, '- will use detected hostname instead')
+    }
   }
   
   // Use current hostname (works when accessing from remote IP)

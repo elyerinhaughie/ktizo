@@ -62,9 +62,11 @@ async def startup_event():
         db.close()
 
 # CORS middleware for Vue frontend
+# Allow all origins for native installation (when accessing from remote IPs)
+# In production, you may want to restrict this to specific origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["*"],  # Allow all origins for native installation
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

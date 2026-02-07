@@ -409,7 +409,9 @@ EOF
 #!/bin/bash
 SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 cd "\$SCRIPT_DIR/frontend"
-export VITE_API_URL=http://localhost:8000
+# Don't set VITE_API_URL - let frontend detect hostname dynamically
+# This allows the frontend to work when accessed from remote IPs
+# export VITE_API_URL=http://localhost:8000
 npm run dev -- --host 0.0.0.0
 EOF
 

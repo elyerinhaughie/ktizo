@@ -264,7 +264,9 @@ if [ "$FRONTEND_RUNNING" = false ]; then
     fi
     
     cd "$SCRIPT_DIR/frontend"
-    export VITE_API_URL=http://localhost:8000
+    # Don't set VITE_API_URL - let frontend detect hostname dynamically
+    # This allows the frontend to work when accessed from remote IPs
+    # export VITE_API_URL=http://localhost:8000
     
     nohup npm run dev -- --host 0.0.0.0 > "$LOGS_DIR/frontend.log" 2>&1 &
     FRONTEND_PID=$!
