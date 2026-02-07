@@ -81,39 +81,47 @@ install_dependencies() {
             PYTHON_VERSION="3.11"
             echo "Using Python 3.11 (3.14 not available)"
         fi
-        brew install node@20 dnsmasq || true
+        brew install node@20 dnsmasq git make gcc || true
+        # Install Xcode command line tools if not present (needed for gcc)
+        xcode-select --install 2>/dev/null || true
         
     elif [[ "$OS" == "linux" ]]; then
         if [[ "$PKG_MANAGER" == "apk" ]]; then
             apk update
             # Try Python 3.14 first, fallback to available version
-            if apk search python3.14 &>/dev/null && apk add --no-cache python3.14 py3-pip nodejs npm dnsmasq curl bash 2>/dev/null; then
+            # Install build tools for iPXE chainboot bootloaders (makebin)
+            BUILD_TOOLS="git gcc make binutils perl xz-dev mtools syslinux bash musl-dev"
+            if apk search python3.14 &>/dev/null && apk add --no-cache python3.14 py3-pip nodejs npm dnsmasq curl $BUILD_TOOLS 2>/dev/null; then
                 echo "Using Python 3.14"
-            elif apk search python3.13 &>/dev/null && apk add --no-cache python3.13 py3-pip nodejs npm dnsmasq curl bash 2>/dev/null; then
+            elif apk search python3.13 &>/dev/null && apk add --no-cache python3.13 py3-pip nodejs npm dnsmasq curl $BUILD_TOOLS 2>/dev/null; then
                 echo "Using Python 3.13 (3.14 not available)"
-            elif apk search python3.12 &>/dev/null && apk add --no-cache python3.12 py3-pip nodejs npm dnsmasq curl bash 2>/dev/null; then
+            elif apk search python3.12 &>/dev/null && apk add --no-cache python3.12 py3-pip nodejs npm dnsmasq curl $BUILD_TOOLS 2>/dev/null; then
                 echo "Using Python 3.12 (3.14 not available)"
             else
-                apk add --no-cache python3 py3-pip nodejs npm dnsmasq curl bash
+                apk add --no-cache python3 py3-pip nodejs npm dnsmasq curl $BUILD_TOOLS
                 echo "Using system Python 3 (3.14 not available)"
             fi
         elif [[ "$PKG_MANAGER" == "apt" ]]; then
             apt-get update
+            # Install build tools for iPXE chainboot bootloaders (makebin)
+            BUILD_TOOLS="git make gcc binutils perl xz-utils mtools syslinux bash build-essential"
             # Try Python 3.14 first, fallback to 3.13, 3.12, 3.11, then python3
-            if apt-cache show python3.14 &>/dev/null && apt-get install -y python3.14 python3.14-venv python3-pip nodejs npm dnsmasq curl 2>/dev/null; then
+            if apt-cache show python3.14 &>/dev/null && apt-get install -y python3.14 python3.14-venv python3-pip nodejs npm dnsmasq curl $BUILD_TOOLS 2>/dev/null; then
                 echo "Using Python 3.14"
-            elif apt-cache show python3.13 &>/dev/null && apt-get install -y python3.13 python3.13-venv python3-pip nodejs npm dnsmasq curl 2>/dev/null; then
+            elif apt-cache show python3.13 &>/dev/null && apt-get install -y python3.13 python3.13-venv python3-pip nodejs npm dnsmasq curl $BUILD_TOOLS 2>/dev/null; then
                 echo "Using Python 3.13 (3.14 not available)"
-            elif apt-cache show python3.12 &>/dev/null && apt-get install -y python3.12 python3.12-venv python3-pip nodejs npm dnsmasq curl 2>/dev/null; then
+            elif apt-cache show python3.12 &>/dev/null && apt-get install -y python3.12 python3.12-venv python3-pip nodejs npm dnsmasq curl $BUILD_TOOLS 2>/dev/null; then
                 echo "Using Python 3.12 (3.14 not available)"
-            elif apt-cache show python3.11 &>/dev/null && apt-get install -y python3.11 python3.11-venv python3-pip nodejs npm dnsmasq curl 2>/dev/null; then
+            elif apt-cache show python3.11 &>/dev/null && apt-get install -y python3.11 python3.11-venv python3-pip nodejs npm dnsmasq curl $BUILD_TOOLS 2>/dev/null; then
                 echo "Using Python 3.11 (3.14 not available)"
             else
-                apt-get install -y python3 python3-venv python3-pip nodejs npm dnsmasq curl
+                apt-get install -y python3 python3-venv python3-pip nodejs npm dnsmasq curl $BUILD_TOOLS
                 echo "Using system Python 3 (3.14 not available)"
             fi
         elif [[ "$PKG_MANAGER" == "yum" ]] || [[ "$PKG_MANAGER" == "dnf" ]]; then
-            $PKG_MANAGER install -y python3 python3-pip nodejs npm dnsmasq curl
+            # Install build tools for iPXE chainboot bootloaders (makebin)
+            BUILD_TOOLS="git make gcc binutils perl xz-devel mtools syslinux bash"
+            $PKG_MANAGER install -y python3 python3-pip nodejs npm dnsmasq curl $BUILD_TOOLS
         fi
     fi
     
