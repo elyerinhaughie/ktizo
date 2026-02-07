@@ -2,18 +2,38 @@
 from pathlib import Path
 import yaml
 import logging
+import os
 from typing import Optional, Tuple, List, Dict, Any
 from app.db.models import Device, DeviceRole, VolumeConfig
 from app.crud import cluster as cluster_crud
 from app.crud import volume as volume_crud
 from app.db.database import SessionLocal
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class ConfigGenerator:
     def __init__(self):
-        self.base_dir = Path("/templates") / "base"
-        self.output_dir = Path("/compiled") / "talos" / "configs"
+        # Use environment variables if set, otherwise use config defaults, otherwise Docker paths
+        templates_dir = os.getenv("TEMPLATES_DIR", settings.TEMPLATES_DIR)
+        compiled_dir = os.getenv("COMPILED_DIR", settings.COMPILED_DIR)
+        
+        base_path = Path(templates_dir) / "base"
+        if not base_path.is_absolute():
+            base_path = Path(__file__).parent.parent.parent.parent.parent / base_path
+        
+        output_path = Path(compiled_dir) / "talos" / "configs"
+        if not output_path.is_absolute():
+            output_path = Path(__file__).parent.parent.parent.parent.parent / output_path
+        
+        # Fallback to Docker paths if environment not set and relative path doesn't exist
+        if not base_path.exists() and not os.getenv("TEMPLATES_DIR"):
+            base_path = Path("/templates") / "base"
+        if not output_path.exists() and not os.getenv("COMPILED_DIR"):
+            output_path = Path("/compiled") / "talos" / "configs"
+        
+        self.base_dir = base_path
+        self.output_dir = output_path
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def _generate_volume_configs(self, db) -> List[Dict[str, Any]]:

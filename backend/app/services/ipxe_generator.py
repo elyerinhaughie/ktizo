@@ -2,15 +2,35 @@
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 import logging
+import os
 from typing import List
 from app.db.models import Device, DeviceStatus
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class IPXEGenerator:
     def __init__(self):
-        self.templates_dir = Path("/templates") / "pxe"
-        self.output_dir = Path("/compiled") / "pxe"
+        # Use environment variables if set, otherwise use config defaults, otherwise Docker paths
+        templates_dir = os.getenv("TEMPLATES_DIR", settings.TEMPLATES_DIR)
+        compiled_dir = os.getenv("COMPILED_DIR", settings.COMPILED_DIR)
+        
+        templates_path = Path(templates_dir) / "pxe"
+        if not templates_path.is_absolute():
+            templates_path = Path(__file__).parent.parent.parent.parent.parent / templates_path
+        
+        output_path = Path(compiled_dir) / "pxe"
+        if not output_path.is_absolute():
+            output_path = Path(__file__).parent.parent.parent.parent.parent / output_path
+        
+        # Fallback to Docker paths if environment not set and relative path doesn't exist
+        if not templates_path.exists() and not os.getenv("TEMPLATES_DIR"):
+            templates_path = Path("/templates") / "pxe"
+        if not output_path.exists() and not os.getenv("COMPILED_DIR"):
+            output_path = Path("/compiled") / "pxe"
+        
+        self.templates_dir = templates_path
+        self.output_dir = output_path
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Set up Jinja2 environment

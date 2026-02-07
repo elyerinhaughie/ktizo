@@ -222,8 +222,9 @@ if [ "$BACKEND_RUNNING" = false ]; then
     cd "$SCRIPT_DIR"
     mkdir -p "$LOGS_DIR"
     
-    export TEMPLATES_DIR="$SCRIPT_DIR/templates"
-    export COMPILED_DIR="$SCRIPT_DIR/compiled"
+    # Set absolute paths for templates and compiled directories
+    export TEMPLATES_DIR="$(cd "$SCRIPT_DIR/templates" && pwd)"
+    export COMPILED_DIR="$(cd "$SCRIPT_DIR/compiled" && pwd)"
     export PYTHONUNBUFFERED=1
     
     cd "$BACKEND_DIR"

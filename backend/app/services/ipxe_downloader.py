@@ -1,15 +1,30 @@
 """Service for downloading iPXE bootloader files"""
 import requests
 import logging
+import os
 from pathlib import Path
 from typing import List, Tuple
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class IPXEDownloader:
     def __init__(self):
         self.base_url = "https://boot.ipxe.org"
-        self.tftp_root = Path("/compiled") / "pxe"
+        
+        # Use environment variable if set, otherwise config, otherwise Docker path
+        compiled_dir = os.getenv("COMPILED_DIR", settings.COMPILED_DIR)
+        tftp_path = Path(compiled_dir) / "pxe"
+        
+        if not tftp_path.is_absolute():
+            # Assume relative to project root
+            tftp_path = Path(__file__).parent.parent.parent.parent.parent / tftp_path
+        
+        # Fallback to Docker path if not set
+        if not tftp_path.exists() and not os.getenv("COMPILED_DIR"):
+            tftp_path = Path("/compiled") / "pxe"
+        
+        self.tftp_root = tftp_path
         self.tftp_root.mkdir(parents=True, exist_ok=True)
 
         # iPXE bootloader files needed (name on boot.ipxe.org → local name)

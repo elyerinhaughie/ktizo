@@ -383,8 +383,9 @@ create_startup_scripts() {
 SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 cd "\$SCRIPT_DIR/backend"
 source "\$SCRIPT_DIR/venv/bin/activate"
-export TEMPLATES_DIR="\$SCRIPT_DIR/templates"
-export COMPILED_DIR="\$SCRIPT_DIR/compiled"
+# Use absolute paths for templates and compiled directories
+export TEMPLATES_DIR="\$(cd "\$SCRIPT_DIR/templates" && pwd)"
+export COMPILED_DIR="\$(cd "\$SCRIPT_DIR/compiled" && pwd)"
 export PYTHONUNBUFFERED=1
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 EOF

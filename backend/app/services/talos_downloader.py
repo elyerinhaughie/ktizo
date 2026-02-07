@@ -1,15 +1,30 @@
 """Service for downloading Talos boot files"""
 import requests
 import logging
+import os
 from pathlib import Path
 from typing import Optional
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class TalosDownloader:
     def __init__(self):
         self.base_url = "https://github.com/siderolabs/talos/releases/download"
-        self.output_dir = Path("/compiled") / "pxe" / "talos"
+        
+        # Use environment variable if set, otherwise config, otherwise Docker path
+        compiled_dir = os.getenv("COMPILED_DIR", settings.COMPILED_DIR)
+        output_dir = Path(compiled_dir) / "pxe" / "talos"
+        
+        if not output_dir.is_absolute():
+            # Assume relative to project root
+            output_dir = Path(__file__).parent.parent.parent.parent.parent / output_dir
+        
+        # Fallback to Docker path if not set
+        if not output_dir.exists() and not os.getenv("COMPILED_DIR"):
+            output_dir = Path("/compiled") / "pxe" / "talos"
+        
+        self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def get_file_path(self, version: str, filename: str) -> Path:

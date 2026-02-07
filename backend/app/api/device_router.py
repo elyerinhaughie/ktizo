@@ -449,7 +449,20 @@ async def get_device_config(mac_address: str, db: Session = Depends(get_db)):
     })
 
     # Read the pre-generated config file for this device
-    compiled_dir = Path("/compiled/talos/configs")
+    import os
+    from app.core.config import settings
+    
+    compiled_dir_env = os.getenv("COMPILED_DIR", settings.COMPILED_DIR)
+    compiled_dir = Path(compiled_dir_env) / "talos" / "configs"
+    
+    if not compiled_dir.is_absolute():
+        # Assume relative to project root
+        compiled_dir = Path(__file__).parent.parent.parent.parent.parent / compiled_dir
+    
+    # Fallback to Docker path if not set
+    if not compiled_dir.exists() and not os.getenv("COMPILED_DIR"):
+        compiled_dir = Path("/compiled/talos/configs")
+    
     config_file = compiled_dir / f"{mac_address}.yaml"
 
     if not config_file.exists():
