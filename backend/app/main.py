@@ -62,6 +62,17 @@ async def startup_event():
     finally:
         db.close()
 
+# Additional middleware to ensure CORS headers are always present
+# This runs after CORSMiddleware to ensure headers are on all responses
+class CORSHeaderMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # Add CORS headers to all responses (ensures they're present even on errors)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        return response
+
 # CORS middleware for Vue frontend
 # Allow all origins for native installation (when accessing from remote IPs)
 # Note: allow_credentials must be False when allow_origins=["*"]
@@ -74,6 +85,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# Add CORS header middleware (runs last to ensure headers on all responses)
+app.add_middleware(CORSHeaderMiddleware)
 
 # Include routers
 app.include_router(network_router.router, prefix="/api/v1/network", tags=["network"])
