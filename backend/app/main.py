@@ -191,7 +191,7 @@ async def options_handler(full_path: str):
     )
 
 # Include API routers
-app.include_router(device_router.router, prefix="/api", tags=["devices"])
-app.include_router(network_router.router, prefix="/api/network", tags=["network"])
-app.include_router(cluster_router.router, prefix="/api/cluster", tags=["cluster"])
-app.include_router(volume_router.router, prefix="/api/volumes", tags=["volumes"])
+app.include_router(device_router.router, prefix="/api/v1", tags=["devices"])
+app.include_router(network_router.router, prefix="/api/v1/network", tags=["network"])
+app.include_router(cluster_router.router, prefix="/api/v1/cluster", tags=["cluster"])
+app.include_router(volume_router.router, prefix="/api/v1/volumes", tags=["volumes"])

@@ -171,12 +171,12 @@ export default {
   // Device Management API
   async getDevices(status = null) {
     const params = status ? { status } : {}
-    const response = await apiClient.get('/api/v1/devices', { params })
+    const response = await apiClient.get('/api/devices', { params })
     return response.data
   },
 
   async getDevice(deviceId) {
-    const response = await apiClient.get(`/api/v1/devices/${deviceId}`)
+    const response = await apiClient.get(`/api/devices/${deviceId}`)
     return response.data
   },
 
