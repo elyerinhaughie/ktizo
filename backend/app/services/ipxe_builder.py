@@ -163,21 +163,27 @@ class IPXEBuilder:
         script = f"""#!ipxe
 
 echo ========================================
-echo Ktizo PXE Chainboot
+echo Ktizo PXE Chainboot (Embedded)
 echo ========================================
-echo Auto-loading boot script from server...
-echo Server: {self.server_ip}
-echo Boot URL: {boot_url}
+
+# Critical: Request DHCP first to get network config
+# This is required when chainloaded iPXE starts fresh
+dhcp || {{
+    echo ERROR: Failed to get DHCP lease
+    sleep 5
+    exit
+}}
 
 # Prevent infinite loops - use same flag as boot.ipxe
 # If we've already chainloaded, exit immediately
 isset booted_from_ipxe && exit || set booted_from_ipxe 1
 
-# Ensure network is ready
-ifstat net0 || ifopen net0 || echo Network interface ready
+echo Auto-loading boot script from server...
+echo Server: {self.server_ip}
+echo Boot URL: {boot_url}
 
 # Auto-chainload the boot script (no menu, no prompts)
-# Use chain with explicit error handling to prevent loops
+# Use fixed HTTP URL - do NOT rely on DHCP boot filename
 chain {boot_url} || {{
     echo ========================================
     echo ERROR: Failed to load boot script
