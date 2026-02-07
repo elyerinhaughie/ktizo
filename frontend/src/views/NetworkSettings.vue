@@ -377,10 +377,19 @@ export default {
         this.showMessage('Settings loaded successfully', 'success')
       } catch (error) {
         if (error.response?.status === 404) {
-          this.showMessage('No settings found. Please configure and save.', 'info')
+          // 404 is expected on first run - no settings exist yet
+          this.showMessage('No settings found. Please configure and save your network settings below.', 'info')
+        } else if (error.response?.data?.detail) {
+          // Show detailed error message from API
+          this.showMessage(`Failed to load settings: ${error.response.data.detail}`, 'error')
+        } else if (error.message) {
+          // Network error or other error with message
+          this.showMessage(`Failed to load settings: ${error.message}`, 'error')
         } else {
-          this.showMessage('Failed to load settings', 'error')
+          // Generic fallback
+          this.showMessage('Failed to load settings. Check that the backend is running and accessible.', 'error')
         }
+        console.error('Error loading network settings:', error)
       } finally {
         this.loading = false
       }
@@ -397,7 +406,14 @@ export default {
         }
         this.showMessage('Settings saved and applied successfully (dnsmasq.conf and boot.ipxe regenerated)', 'success')
       } catch (error) {
-        this.showMessage(error.response?.data?.detail || 'Failed to save settings', 'error')
+        let errorMessage = 'Failed to save settings'
+        if (error.response?.data?.detail) {
+          errorMessage = error.response.data.detail
+        } else if (error.message) {
+          errorMessage = `${errorMessage}: ${error.message}`
+        }
+        this.showMessage(errorMessage, 'error')
+        console.error('Error saving network settings:', error)
       } finally {
         this.saving = false
       }

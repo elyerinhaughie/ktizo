@@ -9,6 +9,26 @@ const apiClient = axios.create({
   }
 })
 
+// Add response interceptor for better error handling
+apiClient.interceptors.response.use(
+  response => response,
+  error => {
+    // Log errors for debugging
+    if (error.response) {
+      // Server responded with error status
+      console.error('API Error:', error.response.status, error.response.data)
+    } else if (error.request) {
+      // Request made but no response (network error)
+      console.error('Network Error: No response from server', error.request)
+      error.message = `Cannot connect to backend at ${API_BASE_URL}. Is the backend running?`
+    } else {
+      // Something else happened
+      console.error('Request Error:', error.message)
+    }
+    return Promise.reject(error)
+  }
+)
+
 export default {
   async getStatus() {
     const response = await apiClient.get('/')
