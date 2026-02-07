@@ -23,19 +23,25 @@ function getApiBaseUrl() {
   return 'http://localhost:8000'
 }
 
-// Call at runtime, not module load time
-const API_BASE_URL = (() => {
-  const url = getApiBaseUrl()
-  console.log('API Base URL set to:', url)
-  return url
-})()
-
+// Create axios instance - baseURL will be set dynamically
 const apiClient = axios.create({
-  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json'
   }
 })
+
+// Set baseURL dynamically on each request to ensure we get current hostname
+apiClient.interceptors.request.use(config => {
+  if (!config.baseURL) {
+    config.baseURL = getApiBaseUrl()
+  }
+  return config
+})
+
+// Set initial baseURL
+const API_BASE_URL = getApiBaseUrl()
+apiClient.defaults.baseURL = API_BASE_URL
+console.log('Axios API client configured with baseURL:', apiClient.defaults.baseURL)
 
 // Add response interceptor for better error handling
 apiClient.interceptors.response.use(
