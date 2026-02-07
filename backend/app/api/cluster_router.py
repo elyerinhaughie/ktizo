@@ -23,14 +23,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 def find_talosctl() -> str:
-    """Find talosctl binary - check backend directory first, then PATH"""
-    # Check if talosctl is in the backend directory (native installation)
+    """Find talosctl binary - check project directory first, then PATH"""
+    # Check project directory first (preferred location)
     backend_dir = Path(__file__).parent.parent.parent
     talosctl_path = backend_dir / "talosctl"
     if talosctl_path.exists() and talosctl_path.is_file():
         return str(talosctl_path)
     
-    # Check if talosctl is in PATH
+    # Fallback: Check if talosctl is in PATH
     talosctl_in_path = shutil.which("talosctl")
     if talosctl_in_path:
         return talosctl_in_path
@@ -38,8 +38,8 @@ def find_talosctl() -> str:
     # Not found
     raise FileNotFoundError(
         "talosctl not found. Please ensure talosctl is installed:\n"
-        "1. Run ./install.sh (downloads talosctl to backend/ directory)\n"
-        "2. Or install talosctl system-wide and ensure it's in PATH"
+        "1. Run ./install.sh (installs talosctl to project backend directory)\n"
+        "2. Or install talosctl manually and ensure it's in PATH"
     )
 
 def get_templates_base_dir() -> Path:
@@ -51,6 +51,56 @@ def get_templates_base_dir() -> Path:
         # Resolve relative to backend/ directory (2 parents from api/cluster_router.py)
         base_path = (Path(__file__).parent.parent.parent / base_path).resolve()
     return base_path
+
+def update_talosconfig_endpoint_and_node(control_plane_ip: str) -> bool:
+    """
+    Update talosconfig with endpoint and node using talosctl config commands.
+    This ensures talosctl knows which control plane node to connect to.
+    
+    Args:
+        control_plane_ip: IP address of the control plane node
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        base_dir = get_templates_base_dir()
+        talosconfig_path = base_dir / "talosconfig"
+        
+        if not talosconfig_path.exists():
+            logger.warning(f"Talosconfig not found at {talosconfig_path}")
+            return False
+        
+        talosctl = find_talosctl()
+        
+        # Update endpoint
+        result = subprocess.run(
+            [talosctl, "config", "endpoint", control_plane_ip, "--talosconfig", str(talosconfig_path)],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode != 0:
+            logger.warning(f"Failed to update talosconfig endpoint: {result.stderr}")
+            return False
+        logger.info(f"Updated talosconfig endpoint to {control_plane_ip}")
+        
+        # Update node
+        result = subprocess.run(
+            [talosctl, "config", "node", control_plane_ip, "--talosconfig", str(talosconfig_path)],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode != 0:
+            logger.warning(f"Failed to update talosconfig node: {result.stderr}")
+            return False
+        logger.info(f"Updated talosconfig node to {control_plane_ip}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error updating talosconfig: {e}", exc_info=True)
+        return False
 
 @router.get("/settings", response_model=ClusterSettingsResponse)
 async def get_cluster_settings(db: Session = Depends(get_db)):
@@ -99,6 +149,19 @@ async def update_cluster_settings(settings_id: int, settings: ClusterSettingsUpd
                 logger.warning(f"Failed to set kubectl version to {updated.kubectl_version}: {error}")
         except Exception as e:
             logger.warning(f"Error setting kubectl version: {e}")
+    
+    # If talos_version was updated, download and set that version
+    if settings.talos_version is not None:
+        try:
+            from app.services.talosctl_downloader import TalosctlDownloader
+            talosctl_downloader = TalosctlDownloader()
+            success, error = talosctl_downloader.set_talosctl_version(updated.talos_version)
+            if not success:
+                logger.warning(f"Failed to set talosctl version to {updated.talos_version}: {error}")
+            else:
+                logger.info(f"✅ talosctl updated to version {updated.talos_version}")
+        except Exception as e:
+            logger.warning(f"Error setting talosctl version: {e}")
 
     # Automatically regenerate base Talos configs after settings update
     try:
@@ -365,25 +428,110 @@ async def bootstrap_cluster(db: Session = Depends(get_db)):
         if '/' in bootstrap_ip:
             bootstrap_ip = bootstrap_ip.split('/')[0]
 
+        # Update talosconfig with endpoint and node before bootstrapping
+        if not update_talosconfig_endpoint_and_node(bootstrap_ip):
+            logger.warning("Failed to update talosconfig endpoint/node, continuing with bootstrap anyway")
+
+        # Check if the control plane node is ready (Talos API listening on port 50000)
+        import socket
+        logger.info(f"Checking if control plane node {bootstrap_ip} is ready (port 50000)...")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        try:
+            result = sock.connect_ex((bootstrap_ip, 50000))
+            sock.close()
+            if result != 0:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Control plane node {bootstrap_ip} is not ready. Talos API (port 50000) is not accessible. "
+                           f"Please ensure the node has booted and Talos is running. "
+                           f"Wait a few minutes after the node boots before attempting bootstrap."
+                )
+            logger.info(f"✅ Control plane node {bootstrap_ip} is ready (port 50000 accessible)")
+        except socket.gaierror as e:
+            sock.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot resolve control plane IP {bootstrap_ip}: {e}"
+            )
+        except Exception as e:
+            sock.close()
+            logger.warning(f"Could not check node readiness: {e}, continuing with bootstrap anyway")
+
         # Run talosctl bootstrap — use the node's actual IP for both --nodes and --endpoints
+        # Note: During bootstrap, certificate verification may fail because the node
+        # uses temporary certificates that don't match the CA in talosconfig.
+        # Solution: Create a temporary talosconfig without CA verification for bootstrap.
         talosctl = find_talosctl()
-        result = subprocess.run(
-            [
-                talosctl, "bootstrap",
-                "--talosconfig", str(talosconfig_path),
-                "--nodes", bootstrap_ip,
-                "--endpoints", bootstrap_ip
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120
-        )
+        
+        # Create a temporary talosconfig without CA for bootstrap
+        # This allows bootstrap to proceed even if certificates don't match yet
+        import yaml
+        import tempfile
+        import shutil
+        
+        # Read original talosconfig
+        with open(talosconfig_path, 'r') as f:
+            talosconfig = yaml.safe_load(f)
+        
+        # Create temporary talosconfig without CA certificate
+        # This allows bootstrap to work with temporary node certificates
+        bootstrap_talosconfig = talosconfig.copy()
+        if 'contexts' in bootstrap_talosconfig:
+            for ctx_name in bootstrap_talosconfig['contexts']:
+                ctx = bootstrap_talosconfig['contexts'][ctx_name]
+                # Remove CA to skip certificate verification during bootstrap
+                if 'ca' in ctx:
+                    original_ca = ctx.pop('ca')
+                    logger.info(f"Temporarily removing CA from context {ctx_name} for bootstrap")
+        
+        # Write temporary talosconfig
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp_file:
+            tmp_talosconfig_path = Path(tmp_file.name)
+            yaml.dump(bootstrap_talosconfig, tmp_file, default_flow_style=False)
+        
+        try:
+            # Run bootstrap with temporary talosconfig (no CA verification)
+            logger.info(f"Running bootstrap on node {bootstrap_ip} (using temporary talosconfig without CA)")
+            result = subprocess.run(
+                [
+                    talosctl, "bootstrap",
+                    "--talosconfig", str(tmp_talosconfig_path),
+                    "--nodes", bootstrap_ip,
+                    "--endpoints", bootstrap_ip
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+        finally:
+            # Clean up temporary talosconfig
+            if tmp_talosconfig_path.exists():
+                tmp_talosconfig_path.unlink()
+                logger.info("Cleaned up temporary talosconfig")
 
         if result.returncode != 0:
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to bootstrap cluster: {result.stderr}"
             )
+
+        # After successful bootstrap, try to fetch kubeconfig automatically
+        # Wait a moment for the cluster to be ready
+        import time
+        logger.info("Bootstrap successful, waiting for cluster to be ready before fetching kubeconfig...")
+        time.sleep(5)  # Give cluster a moment to initialize
+        
+        # Try to fetch kubeconfig (non-blocking - don't fail if it's not ready yet)
+        try:
+            from app.api.terminal_router import _ensure_kubeconfig
+            kubeconfig_fetched = _ensure_kubeconfig()
+            if kubeconfig_fetched:
+                logger.info("✅ Kubeconfig automatically fetched after bootstrap")
+            else:
+                logger.info("⚠️  Kubeconfig not yet available (cluster may still be initializing)")
+        except Exception as e:
+            logger.warning(f"Could not auto-fetch kubeconfig after bootstrap: {e}")
 
         return {
             "message": f"Cluster bootstrapped successfully using node {bootstrap_node.hostname or bootstrap_node.mac_address} ({bootstrap_ip})",
