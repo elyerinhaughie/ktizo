@@ -26,6 +26,8 @@ export default {
       fitAddon: null,
       ws: null,
       resizeObserver: null,
+      isFitting: false,
+      fitTimeout: null,
     }
   },
   computed: {
@@ -42,29 +44,17 @@ export default {
     this.initTerminal()
     this.connect()
 
-    // Use a debounced resize observer to prevent excessive resizing
-    let resizeTimeout
-    this.resizeObserver = new ResizeObserver(() => {
-      clearTimeout(resizeTimeout)
-      resizeTimeout = setTimeout(() => {
-        if (this.fitAddon && this.$refs.terminalContainer) {
-          // Ensure container has dimensions before fitting
-          const rect = this.$refs.terminalContainer.getBoundingClientRect()
-          if (rect.width > 0 && rect.height > 0) {
-            this.fitAddon.fit()
-          }
-        }
-      }, 100)
+    // Wait for layout to stabilize before setting up resize observer
+    this.$nextTick(() => {
+      setTimeout(() => {
+        this.setupResizeObserver()
+      }, 300)
     })
-    this.resizeObserver.observe(this.$refs.terminalContainer)
-    
-    // Also observe the main content area in case it changes
-    const mainContent = document.querySelector('.main-content')
-    if (mainContent) {
-      this.resizeObserver.observe(mainContent)
-    }
   },
   beforeUnmount() {
+    if (this.fitTimeout) {
+      clearTimeout(this.fitTimeout)
+    }
     if (this.resizeObserver) {
       this.resizeObserver.disconnect()
     }
@@ -109,16 +99,13 @@ export default {
       this.term.loadAddon(this.fitAddon)
       this.term.open(this.$refs.terminalContainer)
       
-      // Fit terminal after a short delay to ensure container has dimensions
+      // Fit terminal after layout stabilizes - use requestAnimationFrame for better timing
       this.$nextTick(() => {
-        setTimeout(() => {
-          if (this.fitAddon && this.$refs.terminalContainer) {
-            const rect = this.$refs.terminalContainer.getBoundingClientRect()
-            if (rect.width > 0 && rect.height > 0) {
-              this.fitAddon.fit()
-            }
-          }
-        }, 100)
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            this.safeFit()
+          })
+        })
       })
 
       this.term.onData((data) => {
@@ -142,14 +129,16 @@ export default {
 
       this.ws.onopen = () => {
         this.connectionStatus = 'connected'
-        // Send initial size
-        if (this.fitAddon) {
-          this.fitAddon.fit()
-          const dims = this.fitAddon.proposeDimensions()
-          if (dims) {
-            this.ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }))
+        // Send initial size after a brief delay
+        setTimeout(() => {
+          this.safeFit()
+          if (this.fitAddon) {
+            const dims = this.fitAddon.proposeDimensions()
+            if (dims) {
+              this.ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }))
+            }
           }
-        }
+        }, 100)
       }
 
       this.ws.onmessage = (event) => {
@@ -166,6 +155,50 @@ export default {
       this.ws.onerror = () => {
         this.connectionStatus = 'disconnected'
       }
+    },
+    setupResizeObserver() {
+      // Use a debounced resize observer with guard to prevent loops
+      this.resizeObserver = new ResizeObserver((entries) => {
+        if (this.isFitting) return
+        
+        clearTimeout(this.fitTimeout)
+        this.fitTimeout = setTimeout(() => {
+          if (!this.isFitting && this.fitAddon && this.$refs.terminalContainer) {
+            const rect = this.$refs.terminalContainer.getBoundingClientRect()
+            // Only fit if container has reasonable dimensions
+            if (rect.width > 100 && rect.height > 100) {
+              this.safeFit()
+            }
+          }
+        }, 200)
+      })
+      
+      // Observe the parent container instead of terminal container to avoid feedback loops
+      const mainContent = document.querySelector('.main-content')
+      if (mainContent) {
+        this.resizeObserver.observe(mainContent)
+      }
+    },
+    safeFit() {
+      if (this.isFitting || !this.fitAddon || !this.$refs.terminalContainer) {
+        return
+      }
+      
+      this.isFitting = true
+      const rect = this.$refs.terminalContainer.getBoundingClientRect()
+      
+      if (rect.width > 0 && rect.height > 0) {
+        try {
+          this.fitAddon.fit()
+        } catch (e) {
+          console.warn('Terminal fit error:', e)
+        }
+      }
+      
+      // Reset flag after a brief delay
+      setTimeout(() => {
+        this.isFitting = false
+      }, 50)
     },
   },
 }
