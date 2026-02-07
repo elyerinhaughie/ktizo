@@ -32,7 +32,7 @@ class NetworkSettings(Base):
     pxe_prompt = Column(String, default="Press F8 for boot menu")
     pxe_timeout = Column(Integer, default=3)
     strict_boot_mode = Column(Boolean, default=True)  # If True, unapproved devices exit immediately
-    talos_version = Column(String, default="v1.11.3")  # Talos version to boot
+    talos_version = Column(String, default="1.12.2")  # Talos version to boot
 
     # Logging
     enable_logging = Column(Boolean, default=True)

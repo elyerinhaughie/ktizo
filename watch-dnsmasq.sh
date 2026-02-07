@@ -82,8 +82,10 @@ if [[ "$OS" == "linux" ]]; then
                 # Deploy to remote VM
                 "$DEPLOY_SCRIPT" "$VM_IP" "$VM_USER"
             else
-                # Reload local dnsmasq
+                # Copy compiled config to /etc/dnsmasq.conf and reload local dnsmasq
                 dnsmasq --test -C "$DNSMASQ_CONF" && {
+                    cp "$DNSMASQ_CONF" /etc/dnsmasq.conf
+                    echo "[$(date)] Copied compiled config to /etc/dnsmasq.conf"
                     eval "$RELOAD_CMD"
                     echo "[$(date)] DNSMASQ reloaded successfully"
                 } || {
@@ -98,15 +100,17 @@ else
         echo "Installing fswatch..."
         brew install fswatch
     fi
-    
+
     fswatch -o "$DNSMASQ_CONF" | while read; do
         echo "[$(date)] Detected config change..."
         if [ -n "$VM_IP" ]; then
             # Deploy to remote VM
             "$DEPLOY_SCRIPT" "$VM_IP" "$VM_USER"
         else
-            # Reload local dnsmasq
+            # Copy compiled config to /etc/dnsmasq.conf and reload local dnsmasq
             dnsmasq --test -C "$DNSMASQ_CONF" && {
+                cp "$DNSMASQ_CONF" /etc/dnsmasq.conf
+                echo "[$(date)] Copied compiled config to /etc/dnsmasq.conf"
                 eval "$RELOAD_CMD"
                 echo "[$(date)] DNSMASQ reloaded successfully"
             } || {

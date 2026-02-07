@@ -133,3 +133,4 @@ Current settings:
 
 Make sure your Proxmox VM is on the same network (10.0.x.x subnet).
 
+

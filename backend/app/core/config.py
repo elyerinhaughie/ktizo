@@ -27,3 +27,17 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 settings = Settings()
+
+
+def ensure_v_prefix(version: str) -> str:
+    """Ensure a version string has 'v' prefix (e.g., '1.12.2' -> 'v1.12.2')"""
+    if version and not version.startswith('v'):
+        return f'v{version}'
+    return version
+
+
+def strip_v_prefix(version: str) -> str:
+    """Strip 'v' prefix from a version string (e.g., 'v1.35.0' -> '1.35.0')"""
+    if version and version.startswith('v'):
+        return version[1:]
+    return version

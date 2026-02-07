@@ -8,7 +8,7 @@ from app.db.models import Device, DeviceRole, VolumeConfig
 from app.crud import cluster as cluster_crud
 from app.crud import volume as volume_crud
 from app.db.database import SessionLocal
-from app.core.config import settings
+from app.core.config import settings, ensure_v_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +20,12 @@ class ConfigGenerator:
         
         base_path = Path(templates_dir) / "base"
         if not base_path.is_absolute():
-            base_path = Path(__file__).parent.parent.parent.parent.parent / base_path
-        
+            # Resolve relative to backend/ directory (3 parents from services/config_generator.py)
+            base_path = (Path(__file__).parent.parent.parent / base_path).resolve()
+
         output_path = Path(compiled_dir) / "talos" / "configs"
         if not output_path.is_absolute():
-            output_path = Path(__file__).parent.parent.parent.parent.parent / output_path
+            output_path = (Path(__file__).parent.parent.parent / output_path).resolve()
         
         # Fallback to Docker paths if environment not set and relative path doesn't exist
         if not base_path.exists() and not os.getenv("TEMPLATES_DIR"):
@@ -99,6 +100,40 @@ class ConfigGenerator:
         finally:
             db.close()
 
+    def _get_network_settings(self) -> dict:
+        """Get network settings (nameservers, gateway, subnet) from database"""
+        from app.crud import network as network_crud
+        db = SessionLocal()
+        try:
+            ns = network_crud.get_network_settings(db)
+            if not ns:
+                return {}
+            return {
+                'dns_server': ns.dns_server or ns.server_ip,
+                'dhcp_netmask': ns.dhcp_netmask or '255.255.0.0',
+                'server_ip': ns.server_ip,
+            }
+        finally:
+            db.close()
+
+    @staticmethod
+    def _netmask_to_cidr(netmask: str) -> int:
+        """Convert dotted netmask to CIDR prefix length"""
+        import struct, socket
+        try:
+            packed = socket.inet_aton(netmask)
+            bits = struct.unpack('!I', packed)[0]
+            return bin(bits).count('1')
+        except Exception:
+            return 16  # safe default
+
+    def _ensure_cidr(self, ip_address: str, netmask: str) -> str:
+        """Ensure an IP address has CIDR notation, e.g. 10.0.128.10/16"""
+        if '/' in ip_address:
+            return ip_address
+        prefix = self._netmask_to_cidr(netmask)
+        return f"{ip_address}/{prefix}"
+
     def generate_config_from_params(
         self,
         mac_address: str,
@@ -151,29 +186,39 @@ class ConfigGenerator:
             if hostname:
                 config['machine']['network']['hostname'] = hostname
 
+            # Get network settings for CIDR, gateway, nameservers
+            net_settings = self._get_network_settings()
+            netmask = net_settings.get('dhcp_netmask', '255.255.0.0')
+            gateway = net_settings.get('dns_server', '')
+            nameservers = [net_settings['dns_server']] if net_settings.get('dns_server') else []
+
             # Set static IP by MAC address if provided
             if ip_address and mac_address:
-                if 'interfaces' not in config['machine']['network']:
-                    config['machine']['network']['interfaces'] = []
-
-                # Configure interface with MAC address selector and static IP
+                # Configure interface with MAC address selector, static IP, and default route
                 interface_config = {
                     'deviceSelector': {
                         'hardwareAddr': mac_address
                     },
-                    'addresses': [ip_address]
+                    'addresses': [self._ensure_cidr(ip_address, netmask)],
                 }
 
-                # Replace or add the interface configuration
+                # Add default route via gateway
+                if gateway:
+                    interface_config['routes'] = [
+                        {'network': '0.0.0.0/0', 'gateway': gateway}
+                    ]
+
                 config['machine']['network']['interfaces'] = [interface_config]
+
+            # Set nameservers
+            if nameservers:
+                config['machine']['network']['nameservers'] = nameservers
 
             # Update kubelet version to match Kubernetes version
             k8s_version = self._get_kubernetes_version()
             if k8s_version and 'machine' in config and 'kubelet' in config['machine']:
-                # Ensure version has 'v' prefix
-                version = k8s_version if k8s_version.startswith('v') else f'v{k8s_version}'
-                config['machine']['kubelet']['image'] = f'ghcr.io/siderolabs/kubelet:{version}'
-                logger.info(f"Set kubelet version to {version} for MAC {mac_address}")
+                config['machine']['kubelet']['image'] = f'ghcr.io/siderolabs/kubelet:{ensure_v_prefix(k8s_version)}'
+                logger.info(f"Set kubelet version to {ensure_v_prefix(k8s_version)} for MAC {mac_address}")
 
             # Generate multi-document YAML with VolumeConfigs
             config_docs = [config]
@@ -252,29 +297,39 @@ class ConfigGenerator:
             if device.hostname:
                 config['machine']['network']['hostname'] = device.hostname
 
+            # Get network settings for CIDR, gateway, nameservers
+            net_settings = self._get_network_settings()
+            netmask = net_settings.get('dhcp_netmask', '255.255.0.0')
+            gateway = net_settings.get('dns_server', '')
+            nameservers = [net_settings['dns_server']] if net_settings.get('dns_server') else []
+
             # Set static IP by MAC address if provided
             if device.ip_address and device.mac_address:
-                if 'interfaces' not in config['machine']['network']:
-                    config['machine']['network']['interfaces'] = []
-
-                # Configure interface with MAC address selector and static IP
+                # Configure interface with MAC address selector, static IP, and default route
                 interface_config = {
                     'deviceSelector': {
                         'hardwareAddr': device.mac_address
                     },
-                    'addresses': [device.ip_address]
+                    'addresses': [self._ensure_cidr(device.ip_address, netmask)],
                 }
 
-                # Replace or add the interface configuration
+                # Add default route via gateway
+                if gateway:
+                    interface_config['routes'] = [
+                        {'network': '0.0.0.0/0', 'gateway': gateway}
+                    ]
+
                 config['machine']['network']['interfaces'] = [interface_config]
+
+            # Set nameservers
+            if nameservers:
+                config['machine']['network']['nameservers'] = nameservers
 
             # Update kubelet version to match Kubernetes version
             k8s_version = self._get_kubernetes_version()
             if k8s_version and 'machine' in config and 'kubelet' in config['machine']:
-                # Ensure version has 'v' prefix
-                version = k8s_version if k8s_version.startswith('v') else f'v{k8s_version}'
-                config['machine']['kubelet']['image'] = f'ghcr.io/siderolabs/kubelet:{version}'
-                logger.info(f"Set kubelet version to {version} for device {device.mac_address}")
+                config['machine']['kubelet']['image'] = f'ghcr.io/siderolabs/kubelet:{ensure_v_prefix(k8s_version)}'
+                logger.info(f"Set kubelet version to {ensure_v_prefix(k8s_version)} for device {device.mac_address}")
 
             # Generate multi-document YAML with VolumeConfigs
             config_docs = [config]

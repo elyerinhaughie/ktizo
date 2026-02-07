@@ -80,3 +80,4 @@ For production, deploy on a Linux server where host networking works perfectly.
 
 The Docker setup is now configured for macOS compatibility. Test and let me know if you need to try the alternatives!
 
+

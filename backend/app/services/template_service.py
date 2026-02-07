@@ -16,13 +16,14 @@ class TemplateService:
         # Convert relative paths to absolute if needed
         template_path = Path(templates_dir)
         if not template_path.is_absolute():
-            # Assume relative to project root
-            template_path = Path(__file__).parent.parent.parent.parent.parent / template_path
-        
+            # Resolve relative to backend/ directory
+            # template_service.py is at backend/app/services/template_service.py
+            # So 3 parent levels gets us to backend/
+            template_path = (Path(__file__).parent.parent.parent / template_path).resolve()
+
         self.compiled_path = Path(compiled_dir)
         if not self.compiled_path.is_absolute():
-            # Assume relative to project root
-            self.compiled_path = Path(__file__).parent.parent.parent.parent.parent / self.compiled_path
+            self.compiled_path = (Path(__file__).parent.parent.parent / self.compiled_path).resolve()
         
         # Fallback to Docker paths if environment not set and relative path doesn't exist
         if not template_path.exists() and not os.getenv("TEMPLATES_DIR"):

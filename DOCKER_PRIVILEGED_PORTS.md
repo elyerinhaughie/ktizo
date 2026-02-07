@@ -85,3 +85,4 @@ lsof -i :67 -i :69
 - ⚠️ macOS Docker Desktop limitation may prevent external access
 - ✅ Configuration is correct for Linux deployment
 
+

@@ -80,3 +80,4 @@ Current configuration:
 2. **For Production**: Deploy on a Linux server where host networking works correctly
 3. **Verify**: Test PXE boot from a physical machine on the same network
 
+

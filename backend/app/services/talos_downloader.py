@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Optional
-from app.core.config import settings
+from app.core.config import settings, ensure_v_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,8 @@ class TalosDownloader:
 
     def get_file_path(self, version: str, filename: str) -> Path:
         """Get the local file path for a Talos file"""
-        # Store files as version-specific: vmlinuz-amd64-v1.11.3
+        # Store files as version-specific: vmlinuz-amd64-v1.12.2
+        version = ensure_v_prefix(version)
         name_parts = filename.rsplit('.', 1)  # Split extension
         if len(name_parts) == 2:
             versioned_name = f"{name_parts[0]}-{version}.{name_parts[1]}"
@@ -73,7 +74,8 @@ class TalosDownloader:
                 logger.info(f"File already exists: {output_path}")
                 return output_path
 
-            # Download URL
+            # Download URL — GitHub releases use v-prefixed tags
+            version = ensure_v_prefix(version)
             url = f"{self.base_url}/{version}/{filename}"
             logger.info(f"Downloading {url} to {output_path}")
 
@@ -159,6 +161,7 @@ class TalosDownloader:
         Returns:
             Dict with keys 'vmlinuz' and 'initramfs' containing versioned filenames
         """
+        version = ensure_v_prefix(version)
         return {
             "vmlinuz": f"vmlinuz-amd64-{version}",
             "initramfs": f"initramfs-amd64-{version}.xz"

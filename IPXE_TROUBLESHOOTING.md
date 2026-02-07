@@ -97,3 +97,4 @@ If it still shows "nothing to boot", the issue is likely:
 - Boot script not reaching auto-install section
 - Or Talos kernel/initrd files missing
 
+

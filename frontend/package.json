@@ -12,7 +12,9 @@
     "axios": "^1.6.2",
     "vue": "^3.4.0",
     "vue-router": "^4.2.5",
-    "vue-toastification": "^2.0.0-rc.5"
+    "vue-toastification": "^2.0.0-rc.5",
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",

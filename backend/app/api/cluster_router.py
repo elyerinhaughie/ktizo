@@ -10,6 +10,7 @@ from app.schemas.cluster import (
     GenerateSecretsResponse
 )
 from app.crud import cluster as cluster_crud
+from app.core.config import ensure_v_prefix, strip_v_prefix
 import subprocess
 import tempfile
 import os
@@ -39,9 +40,14 @@ def find_talosctl() -> str:
     )
 
 def get_templates_base_dir() -> Path:
-    """Get the base templates directory, using environment variable or default"""
-    templates_dir = os.getenv("TEMPLATES_DIR", "/templates")
-    return Path(templates_dir) / "base"
+    """Get the base templates directory, using environment variable or config default"""
+    from app.core.config import settings as app_settings
+    templates_dir = os.getenv("TEMPLATES_DIR", app_settings.TEMPLATES_DIR)
+    base_path = Path(templates_dir) / "base"
+    if not base_path.is_absolute():
+        # Resolve relative to backend/ directory (2 parents from api/cluster_router.py)
+        base_path = (Path(__file__).parent.parent.parent / base_path).resolve()
+    return base_path
 
 @router.get("/settings", response_model=ClusterSettingsResponse)
 async def get_cluster_settings(db: Session = Depends(get_db)):
@@ -128,7 +134,7 @@ async def generate_cluster_config(db: Session = Depends(get_db)):
             settings.cluster_name,
             f"https://{settings.cluster_endpoint}:6443",
             "--output-dir", str(base_dir),
-            "--kubernetes-version", settings.kubernetes_version,
+            "--kubernetes-version", strip_v_prefix(settings.kubernetes_version),
             "--force",  # Allow overwriting existing configs during regeneration
         ]
 
@@ -161,14 +167,16 @@ async def generate_cluster_config(db: Session = Depends(get_db)):
 
         # Patch ALL Kubernetes component versions to ensure they match user-defined version
         import yaml
-        # Ensure version has 'v' prefix
-        k8s_version = settings.kubernetes_version if settings.kubernetes_version.startswith('v') else f'v{settings.kubernetes_version}'
+        k8s_version = ensure_v_prefix(settings.kubernetes_version)
 
         for config_file in ["controlplane.yaml", "worker.yaml"]:
             config_path = base_dir / config_file
             if config_path.exists():
                 with open(config_path, 'r') as f:
-                    config = yaml.safe_load(f)
+                    docs = list(yaml.safe_load_all(f))
+                if not docs:
+                    continue
+                config = docs[0]  # First document is the machine config
 
                 # Patch machine-level kubelet version
                 if 'machine' in config:
@@ -178,29 +186,29 @@ async def generate_cluster_config(db: Session = Depends(get_db)):
 
                 # Patch cluster-level Kubernetes component images (controlplane only)
                 if config_file == "controlplane.yaml" and 'cluster' in config:
-                    # Patch API server image
                     if 'apiServer' not in config['cluster']:
                         config['cluster']['apiServer'] = {}
                     config['cluster']['apiServer']['image'] = f'registry.k8s.io/kube-apiserver:{k8s_version}'
 
-                    # Patch controller manager image
                     if 'controllerManager' not in config['cluster']:
                         config['cluster']['controllerManager'] = {}
                     config['cluster']['controllerManager']['image'] = f'registry.k8s.io/kube-controller-manager:{k8s_version}'
 
-                    # Patch scheduler image
                     if 'scheduler' not in config['cluster']:
                         config['cluster']['scheduler'] = {}
                     config['cluster']['scheduler']['image'] = f'registry.k8s.io/kube-scheduler:{k8s_version}'
 
-                    # Patch proxy image
                     if 'proxy' not in config['cluster']:
                         config['cluster']['proxy'] = {}
                     config['cluster']['proxy']['image'] = f'registry.k8s.io/kube-proxy:{k8s_version}'
 
-                # Write back the patched config
+                # Write back all documents (patched first + rest unchanged)
+                docs[0] = config
                 with open(config_path, 'w') as f:
-                    yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+                    for i, doc in enumerate(docs):
+                        if i > 0:
+                            f.write('---\n')
+                        yaml.dump(doc, f, default_flow_style=False, sort_keys=False)
 
                 print(f"Patched {config_file} with Kubernetes version {k8s_version}")
 
@@ -325,18 +333,32 @@ async def bootstrap_cluster(db: Session = Depends(get_db)):
                 detail="No approved control plane nodes found. Please approve at least one control plane node first."
             )
 
-        # Use the first control plane node for bootstrapping
-        bootstrap_node = controlplane_devices[0]
-        bootstrap_ip = bootstrap_node.ip_address or settings.cluster_endpoint
+        # Use the first control plane node with a known IP for bootstrapping
+        bootstrap_node = None
+        for node in controlplane_devices:
+            if node.ip_address:
+                bootstrap_node = node
+                break
 
-        # Run talosctl bootstrap with endpoints parameter
+        if not bootstrap_node:
+            raise HTTPException(
+                status_code=400,
+                detail="No control plane node has an IP address assigned. Please set an IP for at least one control plane node."
+            )
+
+        bootstrap_ip = bootstrap_node.ip_address
+        # Strip CIDR prefix if present (e.g., 10.0.128.10/16 -> 10.0.128.10)
+        if '/' in bootstrap_ip:
+            bootstrap_ip = bootstrap_ip.split('/')[0]
+
+        # Run talosctl bootstrap — use the node's actual IP for both --nodes and --endpoints
         talosctl = find_talosctl()
         result = subprocess.run(
             [
                 talosctl, "bootstrap",
                 "--talosconfig", str(talosconfig_path),
                 "--nodes", bootstrap_ip,
-                "--endpoints", settings.cluster_endpoint
+                "--endpoints", bootstrap_ip
             ],
             capture_output=True,
             text=True,
@@ -395,14 +417,23 @@ async def download_kubeconfig(db: Session = Depends(get_db)):
         with tempfile.TemporaryDirectory() as tmp_dir:
             kubeconfig_path = Path(tmp_dir) / "kubeconfig"
 
-            # Retrieve kubeconfig from the cluster using talosctl
-            # This requires the cluster to be bootstrapped and running
+            # Retrieve kubeconfig using the first controlplane node's actual IP
+            from app.crud import device as device_crud
+            from app.db.models import DeviceStatus, DeviceRole
+            all_devices = device_crud.get_devices_by_status(db, DeviceStatus.APPROVED, skip=0, limit=1000)
+            cp_nodes = [d for d in all_devices if d.role == DeviceRole.CONTROLPLANE and d.ip_address]
+            if not cp_nodes:
+                raise HTTPException(status_code=400, detail="No control plane nodes with IP addresses found.")
+            cp_ip = cp_nodes[0].ip_address
+            if '/' in cp_ip:
+                cp_ip = cp_ip.split('/')[0]
+
             talosctl = find_talosctl()
             result = subprocess.run(
                 [
                     talosctl, "kubeconfig",
                     "--talosconfig", str(talosconfig_path),
-                    "--nodes", settings.cluster_endpoint,
+                    "--nodes", cp_ip,
                     str(kubeconfig_path)
                 ],
                 capture_output=True,

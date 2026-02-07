@@ -166,42 +166,48 @@ echo ========================================
 echo Ktizo PXE Chainboot (Embedded)
 echo ========================================
 
-# Prevent infinite loops - use same flag as boot.ipxe
-# Check FIRST before doing anything else
-isset booted_from_ipxe && exit || set booted_from_ipxe 1
+# Prevent chainboot from re-executing itself
+isset chainboot_done && exit || set chainboot_done 1
 
-# Get network config without triggering DHCP boot filename
-# Use 'dhcp net0' to get IP config, but ignore boot filename
-# Then immediately set our own boot target to prevent DHCP from overriding
+echo Configuring network...
+
+# IMPORTANT: Do NOT use 'dhcp net0' — in proxy DHCP mode it triggers
+# PXE service discovery which causes dnsmasq to serve this chainboot
+# binary again, creating a loop.
+#
+# Instead, just open the interface. The UNDI layer from the initial
+# PXE boot still has network configured (IP from the real DHCP server).
+# Then chain directly to the boot script via HTTP.
+
+ifopen net0 || echo [WARN] ifopen failed, trying chain anyway...
+
+echo Chainloading boot script...
+echo URL: {boot_url}
+
+# Try chain with UNDI network first (fastest path)
+chain {boot_url} && exit ||
+
+# If that failed, the interface may need DHCP.
+# Use ifconf to get just an IP without triggering PXE vendor options.
+echo [WARN] Direct chain failed, trying DHCP...
 dhcp net0 || {{
-    echo ERROR: Failed to get network config
-    sleep 5
+    echo ERROR: DHCP failed
+    sleep 3
     exit
 }}
 
-# CRITICAL: Set boot filename to our fixed URL immediately
-# This prevents dnsmasq from serving a different boot filename
-set next-server {self.server_ip}
-set filename {boot_url}
-
-echo Auto-loading boot script from server...
-echo Server: {self.server_ip}
-echo Boot URL: {boot_url}
-
-# Auto-chainload the boot script (no menu, no prompts)
-# Use fixed HTTP URL - do NOT rely on DHCP boot filename
 chain {boot_url} || {{
     echo ========================================
     echo ERROR: Failed to load boot script
     echo ========================================
     echo Could not load: {boot_url}
-    echo Check network connectivity and server availability
-    echo Server IP: {self.server_ip}
-    echo Boot URL: {boot_url}
     echo
-    echo Exiting to prevent boot loop...
-    sleep 5
-    exit
+    echo Retrying via TFTP...
+    chain tftp://{self.server_ip}/pxe/boot.ipxe || {{
+        echo TFTP also failed. Exiting.
+        sleep 5
+        exit
+    }}
 }}
 """
         return script

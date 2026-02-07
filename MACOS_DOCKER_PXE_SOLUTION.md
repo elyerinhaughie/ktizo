@@ -178,3 +178,4 @@ You're currently using `network_mode: host` which doesn't work on macOS Docker D
 
 **Recommended next step**: Switch to bridge network with port mapping (Option 1) for the simplest Docker-based solution.
 
+

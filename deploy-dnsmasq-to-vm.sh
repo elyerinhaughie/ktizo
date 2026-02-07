@@ -88,8 +88,9 @@ ssh "$VM_USER@$VM_IP" "mkdir -p $REMOTE_PXE_DIR" || {
 }
 
 # Copy iPXE bootloader files if they exist locally
+# Include both standard and chainboot bootloaders, plus boot.ipxe
 if [ -d "$LOCAL_PXE_DIR" ]; then
-    for file in undionly.kpxe ipxe.efi ipxe.pxe snponly.efi; do
+    for file in undionly.kpxe ipxe.efi ipxe.pxe snponly.efi undionly-chainboot.kpxe ipxe-chainboot.efi ipxe-chainboot.pxe chainboot.ipxe boot.ipxe; do
         if [ -f "$LOCAL_PXE_DIR/$file" ]; then
             echo "  Copying $file..."
             scp "$LOCAL_PXE_DIR/$file" "$VM_USER@$VM_IP:$REMOTE_PXE_DIR/" || {
@@ -106,7 +107,7 @@ fi
 echo "Checking for iPXE files in VM's compiled directory..."
 ssh "$VM_USER@$VM_IP" "
     if [ -d /root/.ktizo/compiled/pxe ]; then
-        for file in undionly.kpxe ipxe.efi ipxe.pxe snponly.efi; do
+        for file in undionly.kpxe ipxe.efi ipxe.pxe snponly.efi undionly-chainboot.kpxe ipxe-chainboot.efi ipxe-chainboot.pxe chainboot.ipxe boot.ipxe; do
             if [ -f /root/.ktizo/compiled/pxe/\$file ] && [ ! -f $REMOTE_PXE_DIR/\$file ]; then
                 echo \"  Copying \$file from compiled directory...\"
                 cp /root/.ktizo/compiled/pxe/\$file $REMOTE_PXE_DIR/ || echo \"  Failed to copy \$file\"

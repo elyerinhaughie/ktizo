@@ -54,7 +54,11 @@
       "Bash(sudo lsof:*)",
       "Bash(sudo fuser:*)",
       "Bash(sudo python3:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(xargs:*)",
+      "Bash(rsync:*)"
     ],
     "deny": [],
     "ask": []

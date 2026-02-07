@@ -5,7 +5,7 @@ import logging
 import os
 from typing import List
 from app.db.models import Device, DeviceStatus
-from app.core.config import settings
+from app.core.config import settings, ensure_v_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class IPXEGenerator:
         
         templates_path = Path(templates_dir) / "pxe"
         if not templates_path.is_absolute():
-            templates_path = Path(__file__).parent.parent.parent.parent.parent / templates_path
+            templates_path = (Path(__file__).parent.parent.parent / templates_path).resolve()
         
         # Fallback to Docker paths if environment not set and relative path doesn't exist
         if not templates_path.exists() and not os.getenv("TEMPLATES_DIR"):
@@ -47,7 +47,7 @@ class IPXEGenerator:
             compiled_dir = os.getenv("COMPILED_DIR", settings.COMPILED_DIR)
             fallback_path = Path(compiled_dir) / "pxe"
             if not fallback_path.is_absolute():
-                fallback_path = Path(__file__).parent.parent.parent.parent.parent / fallback_path
+                fallback_path = (Path(__file__).parent.parent.parent / fallback_path).resolve()
             fallback_path.mkdir(parents=True, exist_ok=True)
             self.output_dir = fallback_path
             logger.info(f"Using fallback directory: {self.output_dir}")
@@ -55,7 +55,19 @@ class IPXEGenerator:
         # Set up Jinja2 environment
         self.env = Environment(loader=FileSystemLoader(str(self.templates_dir)))
 
-    def generate_boot_script(self, devices: List[Device], server_ip: str, talos_version: str = "v1.10.0", strict_mode: bool = False, install_disk: str = "/dev/sda") -> bool:
+    def get_talos_version_from_settings(self, db) -> str:
+        """Get Talos version from network settings in database."""
+        try:
+            from app.crud import network as network_crud
+            ns = network_crud.get_network_settings(db)
+            if ns and ns.talos_version:
+                return ns.talos_version
+            return "1.12.2"
+        except Exception as e:
+            logger.error(f"Failed to get Talos version from settings: {e}")
+            return "1.12.2"
+
+    def generate_boot_script(self, devices: List[Device], server_ip: str, talos_version: str = None, strict_mode: bool = False, install_disk: str = "/dev/sda") -> bool:
         """
         Generate boot.ipxe script with approved device mappings.
 
@@ -70,6 +82,22 @@ class IPXEGenerator:
             True if generation succeeded, False otherwise
         """
         try:
+            # Fetch talos_version and install_disk from DB if not provided
+            if not talos_version or install_disk == "/dev/sda":
+                from app.db.database import SessionLocal
+                from app.crud import network as network_crud
+                from app.crud import cluster as cluster_crud
+                db = SessionLocal()
+                try:
+                    if not talos_version:
+                        talos_version = self.get_talos_version_from_settings(db)
+                    if install_disk == "/dev/sda":
+                        cs = cluster_crud.get_cluster_settings(db)
+                        if cs and cs.install_disk:
+                            install_disk = cs.install_disk
+                finally:
+                    db.close()
+
             # Filter only approved devices
             approved_devices = [d for d in devices if d.status == DeviceStatus.APPROVED]
 
@@ -93,11 +121,11 @@ class IPXEGenerator:
                     f"Check that the template file exists and templates directory is accessible."
                 ) from e
 
-            # Render template
+            # Render template — version needs v prefix for filenames
             try:
                 rendered = template.render(
                     server=server_ip,
-                    version=talos_version,
+                    version=ensure_v_prefix(talos_version),
                     devices=device_mappings,
                     strict_mode=strict_mode,
                     install_disk=install_disk

@@ -9,6 +9,7 @@ import ClusterSettings from './views/ClusterSettings.vue'
 import StorageSettings from './views/StorageSettings.vue'
 import DeviceManagement from './views/DeviceManagement.vue'
 import Wiki from './views/Wiki.vue'
+import Terminal from './views/Terminal.vue'
 
 const routes = [
   { path: '/', name: 'Home', component: Home },
@@ -16,7 +17,8 @@ const routes = [
   { path: '/cluster', name: 'ClusterSettings', component: ClusterSettings },
   { path: '/storage', name: 'StorageSettings', component: StorageSettings },
   { path: '/devices', name: 'DeviceManagement', component: DeviceManagement },
-  { path: '/wiki', name: 'Wiki', component: Wiki }
+  { path: '/wiki', name: 'Wiki', component: Wiki },
+  { path: '/terminal', name: 'Terminal', component: Terminal }
 ]
 
 const router = createRouter({

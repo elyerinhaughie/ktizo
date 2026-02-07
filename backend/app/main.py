@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-from app.api import network_router, cluster_router, device_router, volume_router
+from app.api import network_router, cluster_router, device_router, volume_router, terminal_router
 from app.db.database import init_db, SessionLocal
 from app.services.talos_downloader import talos_downloader
 from app.services.ipxe_downloader import ipxe_downloader
@@ -176,6 +176,89 @@ async def serve_boot_ipxe():
     finally:
         db.close()
 
+# Register a device by MAC address during PXE boot
+# Called by boot.ipxe to ensure all booting devices appear in the UI
+@app.get("/pxe/register/{mac_address}")
+async def register_pxe_device(mac_address: str):
+    """Register a PXE-booting device. Creates a pending device entry if unknown."""
+    from app.crud import device as device_crud
+    from app.services.websocket_manager import websocket_manager
+
+    db = SessionLocal()
+    try:
+        device, is_new = device_crud.register_or_get_device(db, mac_address)
+        if is_new:
+            await websocket_manager.broadcast_event({
+                "type": "device_discovered",
+                "mac_address": device.mac_address
+            })
+            logger.info(f"New PXE device registered: {mac_address}")
+        return Response(content="ok", media_type="text/plain")
+    finally:
+        db.close()
+
+# Serve Talos machine configs via HTTP at /talos/configs/{mac}.yaml
+# This is the URL format used by iPXE boot scripts (no /api/v1 prefix)
+# Generates configs on the fly from base templates + device settings
+@app.get("/talos/configs/{mac_address}.yaml")
+async def serve_talos_config(mac_address: str):
+    """Generate and serve Talos machine configuration for a device by MAC address."""
+    from fastapi.responses import Response as FastResponse
+    from app.crud import device as device_crud
+    from app.crud import network as network_crud
+    from app.db.models import DeviceStatus
+    from app.services.config_generator import ConfigGenerator
+
+    db = SessionLocal()
+    try:
+        # Register or get device
+        device, is_new = device_crud.register_or_get_device(db, mac_address)
+
+        # Check if device is approved
+        if device.status != DeviceStatus.APPROVED:
+            network_settings = network_crud.get_network_settings(db)
+            strict_mode = network_settings.strict_boot_mode if network_settings else True
+
+            if strict_mode:
+                return FastResponse(
+                    content=f"# Device {mac_address} not approved (status: {device.status.value})\n",
+                    status_code=403,
+                    media_type="text/plain",
+                )
+
+        # Update last config download time
+        device_crud.update_config_download_time(db, mac_address)
+
+        # Generate config on the fly from base template + device settings
+        try:
+            config_generator = ConfigGenerator()
+            config_yaml, _ = config_generator.generate_config_from_params(
+                mac_address=device.mac_address,
+                node_type=device.role.value if device.role else "worker",
+                hostname=device.hostname,
+                ip_address=device.ip_address,
+                save_to_disk=True,
+            )
+            return FastResponse(
+                content=config_yaml,
+                media_type="application/x-yaml",
+            )
+        except FileNotFoundError as e:
+            return FastResponse(
+                content=f"# Base config template not found: {e}\n# Generate cluster configs first via the Ktizo UI.\n",
+                status_code=503,
+                media_type="text/plain",
+            )
+        except Exception as e:
+            logger.error(f"Failed to generate config for {mac_address}: {e}")
+            return FastResponse(
+                content=f"# Error generating config for {mac_address}: {e}\n",
+                status_code=500,
+                media_type="text/plain",
+            )
+    finally:
+        db.close()
+
 # Add explicit OPTIONS handler for CORS preflight (backup)
 @app.options("/{full_path:path}")
 async def options_handler(full_path: str):
@@ -195,3 +278,4 @@ app.include_router(device_router.router, prefix="/api/v1", tags=["devices"])
 app.include_router(network_router.router, prefix="/api/v1/network", tags=["network"])
 app.include_router(cluster_router.router, prefix="/api/v1/cluster", tags=["cluster"])
 app.include_router(volume_router.router, prefix="/api/v1/volumes", tags=["volumes"])
+app.include_router(terminal_router.router, tags=["terminal"])

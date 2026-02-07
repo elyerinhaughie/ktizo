@@ -172,10 +172,17 @@ async def update_network_settings(settings_id: int, settings: NetworkSettingsUpd
 
 @router.post("/settings/apply")
 async def apply_network_settings(db: Session = Depends(get_db)):
-    """Apply current network settings by compiling DNSMASQ configuration"""
+    """Apply current network settings by compiling DNSMASQ configuration and regenerating boot.ipxe"""
+    from app.crud import device as device_crud
+    from app.crud import cluster as cluster_crud
+    from app.db.models import DeviceStatus
+    from app.services.ipxe_generator import IPXEGenerator
+
     settings = network_crud.get_network_settings(db)
     if not settings:
         raise HTTPException(status_code=404, detail="Network settings not found")
+
+    errors = []
 
     # Convert database model to dict for template rendering
     config_dict = {
@@ -196,24 +203,36 @@ async def apply_network_settings(db: Session = Depends(get_db)):
         "enable_logging": settings.enable_logging,
     }
 
+    # Compile dnsmasq config
+    config_text = None
+    output_path = None
     try:
         config_text, output_path = template_service.compile_dnsmasq_config(**config_dict)
-        return {
-            "message": f"Network settings applied successfully. DNSMASQ config written to {output_path}. DNSMASQ will reload automatically.",
-            "config": config_text,
-            "path": output_path
-        }
-    except PermissionError as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Permission denied: Failed to write dnsmasq config. {str(e)}. Check that the compiled directory is writable."
-        )
-    except FileNotFoundError as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"File or directory not found: {str(e)}. Check that templates and compiled directories exist."
+    except Exception as e:
+        errors.append(f"Failed to generate dnsmasq.conf: {str(e)}")
+
+    # Regenerate boot.ipxe with all approved devices
+    try:
+        ipxe_generator = IPXEGenerator(tftp_root=settings.tftp_root)
+        approved_devices = device_crud.get_devices_by_status(db, DeviceStatus.APPROVED, skip=0, limit=1000)
+        cluster_settings = cluster_crud.get_cluster_settings(db)
+        install_disk = cluster_settings.install_disk if cluster_settings else "/dev/sda"
+
+        ipxe_generator.generate_boot_script(
+            approved_devices,
+            settings.server_ip,
+            talos_version=settings.talos_version,
+            strict_mode=settings.strict_boot_mode,
+            install_disk=install_disk
         )
     except Exception as e:
-        import traceback
-        error_detail = f"Failed to apply settings: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
-        raise HTTPException(status_code=500, detail=error_detail)
+        errors.append(f"Failed to generate boot.ipxe: {str(e)}")
+
+    if errors:
+        raise HTTPException(status_code=500, detail="; ".join(errors))
+
+    return {
+        "message": f"Network settings applied successfully. DNSMASQ config written to {output_path}. boot.ipxe regenerated. DNSMASQ will reload automatically.",
+        "config": config_text,
+        "path": output_path
+    }

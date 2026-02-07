@@ -10,6 +10,7 @@
           <router-link to="/storage">Storage Settings</router-link>
           <router-link to="/devices">Device Management</router-link>
           <router-link to="/wiki">Wiki</router-link>
+          <router-link to="/terminal">Terminal</router-link>
         </div>
         <div class="nav-actions">
           <button @click="downloadKubeconfig" class="download-btn" title="Download Kubeconfig">

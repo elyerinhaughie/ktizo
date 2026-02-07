@@ -19,16 +19,8 @@ class NetworkSettingsBase(BaseModel):
     pxe_prompt: str = Field(default="Press F8 for boot menu", description="PXE menu prompt")
     pxe_timeout: int = Field(default=3, description="PXE menu timeout in seconds")
     strict_boot_mode: bool = Field(default=True, description="If True, unapproved devices exit immediately instead of attempting local boot")
-    talos_version: str = Field(default="v1.11.3", description="Talos version to boot")
+    talos_version: str = Field(default="1.12.2", description="Talos version to boot")
     enable_logging: bool = Field(default=True, description="Enable DHCP logging")
-
-    @field_validator('talos_version')
-    @classmethod
-    def ensure_version_prefix(cls, v: str) -> str:
-        """Ensure Talos version has 'v' prefix"""
-        if v and not v.startswith('v'):
-            return f'v{v}'
-        return v
 
 class NetworkSettingsCreate(NetworkSettingsBase):
     """Schema for creating network settings"""
@@ -53,14 +45,6 @@ class NetworkSettingsUpdate(BaseModel):
     strict_boot_mode: Optional[bool] = None
     talos_version: Optional[str] = None
     enable_logging: Optional[bool] = None
-
-    @field_validator('talos_version')
-    @classmethod
-    def ensure_version_prefix(cls, v: Optional[str]) -> Optional[str]:
-        """Ensure Talos version has 'v' prefix"""
-        if v and not v.startswith('v'):
-            return f'v{v}'
-        return v
 
 class NetworkSettingsResponse(NetworkSettingsBase):
     """Schema for network settings response"""
