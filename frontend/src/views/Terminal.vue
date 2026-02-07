@@ -42,54 +42,45 @@ export default {
     }
   },
   mounted() {
-    this.initTerminal()
-    this.connect()
+    // Only initialize if we're actually on the terminal route
+    if (this.$route.path === '/terminal') {
+      this.isActive = true
+      this.initTerminal()
+      this.connect()
 
-    // Wait for layout to stabilize before setting up resize observer
-    this.$nextTick(() => {
-      setTimeout(() => {
-        this.setupResizeObserver()
-      }, 300)
-    })
+      // Wait for layout to stabilize before setting up resize observer
+      this.$nextTick(() => {
+        setTimeout(() => {
+          this.setupResizeObserver()
+        }, 300)
+      })
+    } else {
+      this.isActive = false
+    }
   },
-  beforeUnmount() {
-    // Hide terminal immediately
-    this.isActive = false
-    
-    // Clean up all resources when leaving the terminal page
-    if (this.fitTimeout) {
-      clearTimeout(this.fitTimeout)
-      this.fitTimeout = null
-    }
-    if (this.resizeObserver) {
-      this.resizeObserver.disconnect()
-      this.resizeObserver = null
-    }
-    if (this.ws) {
-      this.ws.close()
-      this.ws = null
-    }
-    if (this.term) {
-      this.term.dispose()
-      this.term = null
-    }
-    if (this.fitAddon) {
-      this.fitAddon = null
-    }
-    
-    // Remove window resize listener if it exists
-    if (this.handleResize) {
-      window.removeEventListener('resize', this.handleResize)
-      this.handleResize = null
-    }
-    
-    // Force cleanup of terminal container
-    if (this.$refs.terminalContainer) {
-      const container = this.$refs.terminalContainer
-      if (container.parentElement) {
-        container.innerHTML = ''
+  watch: {
+    '$route'(to, from) {
+      // Hide terminal when navigating away
+      if (to.path !== '/terminal') {
+        this.isActive = false
+        this.cleanup()
+      } else if (to.path === '/terminal' && from.path !== '/terminal') {
+        // Show and initialize when navigating to terminal
+        this.isActive = true
+        this.$nextTick(() => {
+          if (!this.term) {
+            this.initTerminal()
+            this.connect()
+            setTimeout(() => {
+              this.setupResizeObserver()
+            }, 300)
+          }
+        })
       }
     }
+  },
+  beforeUnmount() {
+    this.cleanup()
   },
   methods: {
     initTerminal() {
@@ -266,6 +257,45 @@ export default {
       const mainContent = document.querySelector('.main-content')
       if (mainContent) {
         this.resizeObserver.observe(mainContent)
+      }
+    },
+    cleanup() {
+      // Hide terminal immediately
+      this.isActive = false
+      
+      // Clean up all resources when leaving the terminal page
+      if (this.fitTimeout) {
+        clearTimeout(this.fitTimeout)
+        this.fitTimeout = null
+      }
+      if (this.resizeObserver) {
+        this.resizeObserver.disconnect()
+        this.resizeObserver = null
+      }
+      if (this.ws) {
+        this.ws.close()
+        this.ws = null
+      }
+      if (this.term) {
+        this.term.dispose()
+        this.term = null
+      }
+      if (this.fitAddon) {
+        this.fitAddon = null
+      }
+      
+      // Remove window resize listener if it exists
+      if (this.handleResize) {
+        window.removeEventListener('resize', this.handleResize)
+        this.handleResize = null
+      }
+      
+      // Force cleanup of terminal container
+      if (this.$refs.terminalContainer) {
+        const container = this.$refs.terminalContainer
+        if (container) {
+          container.innerHTML = ''
+        }
       }
     },
     safeFit() {
