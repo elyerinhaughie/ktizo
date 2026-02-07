@@ -67,6 +67,21 @@ class IPXEDownloader:
                 f.write(response.content)
 
             logger.info(f"Successfully downloaded {filename} ({len(response.content)} bytes)")
+            
+            # Also copy to TFTP root if it's different from compiled directory
+            # This ensures files are available for dnsmasq to serve
+            tftp_root = os.getenv("TFTP_ROOT", "/var/lib/tftpboot")
+            if tftp_root and Path(tftp_root).exists():
+                tftp_pxe_dir = Path(tftp_root) / "pxe"
+                tftp_pxe_dir.mkdir(parents=True, exist_ok=True)
+                tftp_file = tftp_pxe_dir / filename
+                try:
+                    import shutil
+                    shutil.copy2(output_path, tftp_file)
+                    logger.info(f"Copied {filename} to TFTP root: {tftp_file}")
+                except Exception as copy_error:
+                    logger.warning(f"Failed to copy {filename} to TFTP root: {copy_error}")
+            
             return True
 
         except Exception as e:
