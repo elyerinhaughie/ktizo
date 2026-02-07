@@ -169,13 +169,15 @@ echo Auto-loading boot script from server...
 echo Server: {self.server_ip}
 echo Boot URL: {boot_url}
 
-# Prevent infinite loops - if we've already chainloaded, exit
-isset chainboot_done && exit || set chainboot_done 1
+# Prevent infinite loops - use same flag as boot.ipxe
+# If we've already chainloaded, exit immediately
+isset booted_from_ipxe && exit || set booted_from_ipxe 1
 
 # Ensure network is ready
 ifstat net0 || ifopen net0 || echo Network interface ready
 
 # Auto-chainload the boot script (no menu, no prompts)
+# Use chain with explicit error handling to prevent loops
 chain {boot_url} || {{
     echo ========================================
     echo ERROR: Failed to load boot script
@@ -184,11 +186,123 @@ chain {boot_url} || {{
     echo Check network connectivity and server availability
     echo Server IP: {self.server_ip}
     echo Boot URL: {boot_url}
-    sleep 10
+    echo
+    echo Exiting to prevent boot loop...
+    sleep 5
     exit
 }}
 """
         return script
+    
+    def _build_with_ipxe_embed(self, script_path: Path, base_bootloader: str, output_name: str) -> bool:
+        """
+        Build custom bootloader using iPXE make with EMBED parameter.
+        This is the preferred method - builds directly from source with embedded script.
+        
+        Args:
+            script_path: Path to chainboot script to embed
+            base_bootloader: Base bootloader name (e.g., "undionly.kpxe")
+            output_name: Output filename (e.g., "undionly-chainboot.kpxe")
+            
+        Returns:
+            True if build succeeded, False otherwise
+        """
+        # Find iPXE source
+        ipxe_dirs = [
+            Path("/tmp/ipxe"),
+            Path("/usr/src/ipxe"),
+            Path.home() / "ipxe",
+        ]
+        
+        ipxe_dir = None
+        for dir_path in ipxe_dirs:
+            if dir_path.exists() and (dir_path / "src" / "Makefile").exists():
+                ipxe_dir = dir_path
+                break
+        
+        # Clone if not found
+        if ipxe_dir is None:
+            ipxe_dir = Path("/tmp/ipxe")
+            logger.info("Cloning iPXE source for building custom bootloaders...")
+            try:
+                if ipxe_dir.exists():
+                    shutil.rmtree(ipxe_dir)
+                
+                result = subprocess.run(
+                    ["git", "clone", "--depth", "1", "https://github.com/ipxe/ipxe.git", str(ipxe_dir)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                
+                if result.returncode != 0:
+                    logger.warning(f"Failed to clone iPXE: {result.stderr}")
+                    return False
+            except Exception as e:
+                logger.warning(f"Error cloning iPXE: {e}")
+                return False
+        
+        # Map bootloader names to iPXE make targets
+        bootloader_targets = {
+            "undionly.kpxe": "bin/undionly.kpxe",
+            "ipxe.efi": "bin-x86_64-efi/ipxe.efi",
+            "ipxe.pxe": "bin/ipxe.pxe",
+        }
+        
+        target = bootloader_targets.get(base_bootloader)
+        if not target:
+            logger.warning(f"Unknown bootloader type: {base_bootloader}")
+            return False
+        
+        # Build with embedded script
+        try:
+            logger.info(f"Building {base_bootloader} with embedded chainboot script...")
+            result = subprocess.run(
+                ["make", "-C", str(ipxe_dir / "src"), target, f"EMBED={script_path}"],
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minutes
+            )
+            
+            if result.returncode == 0:
+                built_file = ipxe_dir / "src" / target
+                if built_file.exists():
+                    # Copy to TFTP root
+                    output_path = self.tftp_root / output_name
+                    shutil.copy(built_file, output_path)
+                    self._set_file_permissions(output_path)
+                    logger.info(f"Successfully built custom bootloader: {output_path}")
+                    return True
+                else:
+                    logger.warning(f"Build succeeded but file not found: {built_file}")
+                    return False
+            else:
+                logger.warning(f"iPXE build failed: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.warning("Timeout building iPXE bootloader")
+            return False
+        except Exception as e:
+            logger.warning(f"Error building iPXE bootloader: {e}")
+            return False
+    
+    def _set_file_permissions(self, file_path: Path):
+        """Set proper file permissions for dnsmasq"""
+        if os.getuid() == 0:
+            try:
+                try:
+                    dnsmasq_user = pwd.getpwnam('dnsmasq')
+                    dnsmasq_uid = dnsmasq_user.pw_uid
+                    dnsmasq_gid = dnsmasq_user.pw_gid
+                except KeyError:
+                    dnsmasq_uid = 0
+                    dnsmasq_gid = 0
+                
+                os.chmod(file_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+                os.chown(file_path, dnsmasq_uid, dnsmasq_gid)
+            except Exception as perm_err:
+                logger.warning(f"Could not set file permissions: {perm_err}")
     
     def build_custom_bootloader(self, base_bootloader: str = "undionly.kpxe", output_name: str = "undionly-k chainboot.kpxe") -> Tuple[bool, Optional[str]]:
         """
@@ -222,7 +336,12 @@ chain {boot_url} || {{
             
             output_path = self.tftp_root / output_name
             
-            # Try to get makebin if not available
+            # Method 1: Use iPXE make with EMBED parameter (preferred method)
+            # This builds bootloaders directly from source with embedded script
+            if self._build_with_ipxe_embed(chainboot_path, base_bootloader, output_name):
+                return True, None
+            
+            # Method 2: Try makebin if available (legacy/alternative)
             if not self.makebin_available:
                 logger.info("makebin not available, attempting to install/build...")
                 if self._install_makebin():
@@ -247,24 +366,7 @@ chain {boot_url} || {{
                     
                     if result.returncode == 0:
                         logger.info(f"Successfully built custom bootloader: {output_path}")
-                        # Set proper permissions
-                        if os.getuid() == 0:
-                            try:
-                                import stat
-                                import pwd
-                                try:
-                                    dnsmasq_user = pwd.getpwnam('dnsmasq')
-                                    dnsmasq_uid = dnsmasq_user.pw_uid
-                                    dnsmasq_gid = dnsmasq_user.pw_gid
-                                except KeyError:
-                                    dnsmasq_uid = 0
-                                    dnsmasq_gid = 0
-                                
-                                os.chmod(output_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
-                                os.chown(output_path, dnsmasq_uid, dnsmasq_gid)
-                            except Exception as perm_err:
-                                logger.warning(f"Could not set file permissions: {perm_err}")
-                        
+                        self._set_file_permissions(output_path)
                         return True, None
                     else:
                         error_msg = f"makebin failed: {result.stderr}"
@@ -276,11 +378,11 @@ chain {boot_url} || {{
                 except Exception as e:
                     return False, f"Failed to run makebin: {e}"
             else:
-                # Fallback: just copy the chainboot script
-                # This won't work as a bootloader, but documents the approach
-                logger.warning("makebin not available - cannot embed script into bootloader")
-                logger.warning("Install iPXE tools (makebin) to build custom bootloaders")
-                return False, "makebin tool not available. Install iPXE development tools."
+                # Fallback - chainboot script created but not embedded
+                logger.warning("Cannot embed script into bootloader - iPXE source or makebin not available")
+                logger.warning("Created standalone chainboot script - configure dnsmasq to serve it first")
+                logger.info(f"Chainboot script available at: {chainboot_path}")
+                return False, "iPXE source or makebin not available. Install build tools (git, make, gcc) to build custom bootloaders."
                 
         except Exception as e:
             logger.error(f"Failed to build custom bootloader: {e}", exc_info=True)
