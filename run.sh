@@ -1,0 +1,266 @@
+#!/bin/bash
+# Intelligent Ktizo run script
+# Handles initialization, service startup, and status checks
+# Usage: ./run.sh
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$SCRIPT_DIR/venv"
+BACKEND_DIR="$SCRIPT_DIR/backend"
+DATA_DIR="$SCRIPT_DIR/data"
+DB_FILE="$DATA_DIR/ktizo.db"
+LOGS_DIR="$SCRIPT_DIR/logs"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Detect OS
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    OS="macos"
+elif [[ "$OSTYPE" == "linux-gnu"* ]] || [[ "$OSTYPE" == "linux-musl"* ]]; then
+    OS="linux"
+    if command -v rc-service &> /dev/null; then
+        USE_OPENRC=true
+    elif command -v systemctl &> /dev/null; then
+        USE_SYSTEMD=true
+    fi
+else
+    OS="unknown"
+fi
+
+echo "=========================================="
+echo "Ktizo Intelligent Run Script"
+echo "=========================================="
+echo ""
+
+# Function to check if service is running
+check_service() {
+    local port=$1
+    local name=$2
+    if lsof -i :$port &>/dev/null || netstat -ulnp 2>/dev/null | grep -q ":$port"; then
+        return 0
+    fi
+    return 1
+}
+
+# Function to wait for service to be ready
+wait_for_service() {
+    local url=$1
+    local name=$2
+    local max_attempts=30
+    local attempt=0
+    
+    echo -n "Waiting for $name to be ready..."
+    while [ $attempt -lt $max_attempts ]; do
+        if curl -s "$url" &>/dev/null; then
+            echo -e " ${GREEN}✓${NC}"
+            return 0
+        fi
+        echo -n "."
+        sleep 1
+        attempt=$((attempt + 1))
+    done
+    echo -e " ${RED}✗${NC}"
+    return 1
+}
+
+# Step 1: Check Python virtual environment
+echo "1. Checking Python environment..."
+if [ ! -d "$VENV_DIR" ]; then
+    echo -e "${RED}Error: Virtual environment not found at $VENV_DIR${NC}"
+    echo "Please run ./install.sh first"
+    exit 1
+fi
+
+if [ ! -f "$VENV_DIR/bin/activate" ]; then
+    echo -e "${RED}Error: Virtual environment is incomplete${NC}"
+    echo "Please run ./install.sh again"
+    exit 1
+fi
+echo -e "${GREEN}✓${NC} Python environment found"
+
+# Step 2: Initialize database if needed
+echo ""
+echo "2. Checking database..."
+if [ ! -f "$DB_FILE" ]; then
+    echo "Database not found, initializing..."
+    mkdir -p "$DATA_DIR"
+    mkdir -p "$LOGS_DIR"
+    
+    cd "$BACKEND_DIR"
+    source "$VENV_DIR/bin/activate"
+    
+    # Try to initialize database
+    if python -m app.db.migrate 2>/dev/null; then
+        echo -e "${GREEN}✓${NC} Database initialized"
+    elif python -c 'from app.db.database import init_db; init_db()' 2>/dev/null; then
+        echo -e "${GREEN}✓${NC} Database initialized"
+    else
+        echo -e "${YELLOW}⚠${NC}  Could not auto-initialize database"
+        echo "Please run manually: cd backend && source ../venv/bin/activate && python -m app.db.migrate"
+    fi
+else
+    echo -e "${GREEN}✓${NC} Database exists"
+fi
+
+# Step 3: Check if services are already running
+echo ""
+echo "3. Checking existing services..."
+BACKEND_RUNNING=false
+FRONTEND_RUNNING=false
+
+if check_service 8000 "backend"; then
+    BACKEND_RUNNING=true
+    echo -e "${YELLOW}⚠${NC}  Backend already running on port 8000"
+else
+    echo -e "${GREEN}✓${NC} Backend port 8000 is free"
+fi
+
+if check_service 5173 "frontend"; then
+    FRONTEND_RUNNING=true
+    echo -e "${YELLOW}⚠${NC}  Frontend already running on port 5173"
+else
+    echo -e "${GREEN}✓${NC} Frontend port 5173 is free"
+fi
+
+# Step 4: Start backend if not running
+if [ "$BACKEND_RUNNING" = false ]; then
+    echo ""
+    echo "4. Starting backend..."
+    cd "$SCRIPT_DIR"
+    mkdir -p "$LOGS_DIR"
+    
+    export TEMPLATES_DIR="$SCRIPT_DIR/templates"
+    export COMPILED_DIR="$SCRIPT_DIR/compiled"
+    export PYTHONUNBUFFERED=1
+    
+    cd "$BACKEND_DIR"
+    source "$VENV_DIR/bin/activate"
+    
+    nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > "$LOGS_DIR/backend.log" 2>&1 &
+    BACKEND_PID=$!
+    echo "$BACKEND_PID" > "$SCRIPT_DIR/.backend.pid"
+    
+    if wait_for_service "http://localhost:8000/docs" "backend"; then
+        echo -e "${GREEN}✓${NC} Backend started (PID: $BACKEND_PID)"
+    else
+        echo -e "${RED}✗${NC} Backend failed to start. Check logs: $LOGS_DIR/backend.log"
+        exit 1
+    fi
+else
+    echo ""
+    echo "4. Backend already running, skipping..."
+fi
+
+# Step 5: Start frontend if not running
+if [ "$FRONTEND_RUNNING" = false ]; then
+    echo ""
+    echo "5. Starting frontend..."
+    cd "$SCRIPT_DIR/frontend"
+    export VITE_API_URL=http://localhost:8000
+    
+    nohup npm run dev -- --host 0.0.0.0 > "$LOGS_DIR/frontend.log" 2>&1 &
+    FRONTEND_PID=$!
+    echo "$FRONTEND_PID" > "$SCRIPT_DIR/.frontend.pid"
+    
+    sleep 3
+    if check_service 5173 "frontend"; then
+        echo -e "${GREEN}✓${NC} Frontend started (PID: $FRONTEND_PID)"
+    else
+        echo -e "${YELLOW}⚠${NC}  Frontend may still be starting. Check logs: $LOGS_DIR/frontend.log"
+    fi
+else
+    echo ""
+    echo "5. Frontend already running, skipping..."
+fi
+
+# Step 6: Check dnsmasq
+echo ""
+echo "6. Checking dnsmasq..."
+DNSMASQ_RUNNING=false
+
+if [ "$OS" = "macos" ]; then
+    if brew services list 2>/dev/null | grep -q "dnsmasq.*started"; then
+        DNSMASQ_RUNNING=true
+    fi
+elif [ "$USE_SYSTEMD" = true ]; then
+    if systemctl is-active --quiet dnsmasq 2>/dev/null; then
+        DNSMASQ_RUNNING=true
+    fi
+elif [ "$USE_OPENRC" = true ]; then
+    if rc-service dnsmasq status &>/dev/null; then
+        DNSMASQ_RUNNING=true
+    fi
+else
+    # Fallback: check if process is running
+    if pgrep -x dnsmasq &>/dev/null; then
+        DNSMASQ_RUNNING=true
+    fi
+fi
+
+if [ "$DNSMASQ_RUNNING" = true ]; then
+    echo -e "${GREEN}✓${NC} dnsmasq is running"
+else
+    echo -e "${YELLOW}⚠${NC}  dnsmasq is not running"
+    echo "   To start dnsmasq:"
+    if [ "$OS" = "macos" ]; then
+        echo "     brew services start dnsmasq"
+    elif [ "$USE_SYSTEMD" = true ]; then
+        echo "     systemctl start dnsmasq"
+    elif [ "$USE_OPENRC" = true ]; then
+        echo "     rc-service dnsmasq start"
+    else
+        echo "     dnsmasq --no-daemon -C /etc/dnsmasq.conf"
+    fi
+fi
+
+# Step 7: Start config watcher in background (optional)
+echo ""
+echo "7. Starting config watcher..."
+if [ -f "$SCRIPT_DIR/watch-dnsmasq.sh" ]; then
+    # Check if already running
+    if pgrep -f "watch-dnsmasq.sh" &>/dev/null; then
+        echo -e "${YELLOW}⚠${NC}  Config watcher already running"
+    else
+        nohup "$SCRIPT_DIR/watch-dnsmasq.sh" > "$LOGS_DIR/watch-dnsmasq.log" 2>&1 &
+        WATCHER_PID=$!
+        echo "$WATCHER_PID" > "$SCRIPT_DIR/.watcher.pid"
+        echo -e "${GREEN}✓${NC} Config watcher started (PID: $WATCHER_PID)"
+    fi
+else
+    echo -e "${YELLOW}⚠${NC}  watch-dnsmasq.sh not found, skipping"
+fi
+
+# Summary
+echo ""
+echo "=========================================="
+echo "Ktizo is running!"
+echo "=========================================="
+echo ""
+echo "Services:"
+echo "  ${GREEN}Backend:${NC}  http://localhost:8000"
+echo "  ${GREEN}Frontend:${NC} http://localhost:5173"
+echo "  ${GREEN}API Docs:${NC} http://localhost:8000/docs"
+echo ""
+echo "Logs:"
+echo "  Backend:  $LOGS_DIR/backend.log"
+echo "  Frontend: $LOGS_DIR/frontend.log"
+echo "  Watcher:  $LOGS_DIR/watch-dnsmasq.log"
+echo ""
+echo "PIDs saved to:"
+echo "  $SCRIPT_DIR/.backend.pid"
+echo "  $SCRIPT_DIR/.frontend.pid"
+echo "  $SCRIPT_DIR/.watcher.pid"
+echo ""
+echo "To stop all services:"
+echo "  ./stop.sh"
+echo ""
+echo "To view logs:"
+echo "  tail -f $LOGS_DIR/backend.log"
+echo "  tail -f $LOGS_DIR/frontend.log"
+echo ""
+

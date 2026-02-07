@@ -20,8 +20,12 @@ echo ""
 # Detect OS
 if [[ "$OSTYPE" == "darwin"* ]]; then
     OS="macos"
-elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+elif [[ "$OSTYPE" == "linux-gnu"* ]] || [[ "$OSTYPE" == "linux-musl"* ]]; then
     OS="linux"
+    # Detect package manager for Alpine
+    if command -v apk &> /dev/null; then
+        PKG_MANAGER="apk"
+    fi
 else
     echo "Error: Unsupported operating system"
     exit 1
@@ -41,19 +45,24 @@ if [[ "$OS" == "macos" ]]; then
     fi
 fi
 
-# Stop systemd service (Linux)
+# Stop systemd service (Linux, non-Alpine)
 if [[ "$OS" == "linux" ]]; then
-    if systemctl is-active --quiet ktizo-backend 2>/dev/null; then
-        echo "Stopping systemd service..."
-        systemctl stop ktizo-backend
-        systemctl disable ktizo-backend
-    fi
-    
-    SERVICE_FILE="/etc/systemd/system/ktizo-backend.service"
-    if [ -f "$SERVICE_FILE" ]; then
-        echo "Removing systemd service..."
-        rm "$SERVICE_FILE"
-        systemctl daemon-reload
+    # Only try systemd if it's available (Alpine doesn't have it)
+    if command -v systemctl &> /dev/null; then
+        if systemctl is-active --quiet ktizo-backend 2>/dev/null; then
+            echo "Stopping systemd service..."
+            systemctl stop ktizo-backend
+            systemctl disable ktizo-backend
+        fi
+        
+        SERVICE_FILE="/etc/systemd/system/ktizo-backend.service"
+        if [ -f "$SERVICE_FILE" ]; then
+            echo "Removing systemd service..."
+            rm "$SERVICE_FILE"
+            systemctl daemon-reload
+        fi
+    else
+        echo "⚠️  systemd not available (Alpine?), skipping systemd service removal"
     fi
 fi
 
@@ -65,7 +74,14 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     if [[ "$OS" == "macos" ]]; then
         brew services stop dnsmasq 2>/dev/null || true
     else
-        systemctl stop dnsmasq 2>/dev/null || true
+        # Try systemd first, then OpenRC (Alpine)
+        if command -v systemctl &> /dev/null; then
+            systemctl stop dnsmasq 2>/dev/null || true
+        elif command -v rc-service &> /dev/null; then
+            rc-service dnsmasq stop 2>/dev/null || true
+        else
+            pkill dnsmasq 2>/dev/null || true
+        fi
     fi
     echo "✅ dnsmasq stopped"
 fi

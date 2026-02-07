@@ -188,7 +188,8 @@ download_talosctl() {
     fi
     
     # Get latest version
-    TALOS_VERSION=$(curl -s https://api.github.com/repos/siderolabs/talos/releases/latest | grep -oP '"tag_name": "\K[^"]+' | head -1)
+    # Use sed instead of grep -P for better Alpine compatibility
+    TALOS_VERSION=$(curl -s https://api.github.com/repos/siderolabs/talos/releases/latest | sed -n 's/.*"tag_name": "\([^"]*\)".*/\1/p' | head -1)
     if [ -z "$TALOS_VERSION" ]; then
         TALOS_VERSION="v1.7.0"
     fi
@@ -477,21 +478,26 @@ main() {
     echo ""
     echo "Next steps:"
     echo ""
-    echo "1. Initialize the database:"
-    echo "   cd $INSTALL_DIR/backend"
-    echo "   source ../venv/bin/activate"
-    echo "   python -c 'from app.db.database import init_db; init_db()'"
+    echo "1. Start services (handles everything automatically):"
+    echo "   $INSTALL_DIR/run.sh"
     echo ""
-    echo "2. Initialize database:"
+    echo "   Or manually:"
+    echo "2. Initialize the database:"
     echo "   cd $INSTALL_DIR/backend"
     echo "   source ../venv/bin/activate"
     echo "   python -m app.db.migrate"
     echo ""
     echo "3. Start services:"
-    echo "   $INSTALL_DIR/start.sh"
+    echo "   $INSTALL_DIR/run.sh"
     echo ""
-    echo "   Or start config watcher in separate terminal:"
-    echo "   $INSTALL_DIR/watch-dnsmasq.sh"
+    echo "   The run.sh script will:"
+    echo "   - Initialize database if needed"
+    echo "   - Start backend and frontend"
+    echo "   - Start config watcher"
+    echo "   - Check dnsmasq status"
+    echo ""
+    echo "   Or use individual scripts:"
+    echo "   $INSTALL_DIR/start.sh"
     echo ""
     if [[ "$OS" == "macos" ]]; then
         echo "   Or use launchd:"
@@ -501,7 +507,7 @@ main() {
         echo "   systemctl start ktizo-backend"
     fi
     echo ""
-    echo "3. Access the web interface:"
+    echo "4. Access the web interface:"
     echo "   Frontend: http://localhost:5173"
     echo "   Backend API: http://localhost:8000"
     echo "   API Docs: http://localhost:8000/docs"

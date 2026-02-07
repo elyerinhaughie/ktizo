@@ -19,9 +19,16 @@ DNSMASQ_CONF="$COMPILED_DIR/dnsmasq/dnsmasq.conf"
 if [[ "$OSTYPE" == "darwin"* ]]; then
     OS="macos"
     RELOAD_CMD="brew services restart dnsmasq"
-elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+elif [[ "$OSTYPE" == "linux-gnu"* ]] || [[ "$OSTYPE" == "linux-musl"* ]]; then
     OS="linux"
-    RELOAD_CMD="systemctl reload dnsmasq"
+    # Detect if Alpine (uses OpenRC) or systemd
+    if command -v rc-service &> /dev/null; then
+        RELOAD_CMD="rc-service dnsmasq restart"
+    elif command -v systemctl &> /dev/null; then
+        RELOAD_CMD="systemctl reload dnsmasq"
+    else
+        RELOAD_CMD="pkill -HUP dnsmasq"  # Fallback: send SIGHUP
+    fi
 else
     echo "Error: Unsupported OS"
     exit 1
@@ -35,7 +42,19 @@ echo ""
 if [[ "$OS" == "linux" ]]; then
     if ! command -v inotifywait &> /dev/null; then
         echo "Installing inotify-tools..."
-        apt-get install -y inotify-tools || yum install -y inotify-tools || dnf install -y inotify-tools
+        # Detect package manager for Alpine
+        if command -v apk &> /dev/null; then
+            apk add --no-cache inotify-tools
+        elif command -v apt-get &> /dev/null; then
+            apt-get install -y inotify-tools
+        elif command -v yum &> /dev/null; then
+            yum install -y inotify-tools
+        elif command -v dnf &> /dev/null; then
+            dnf install -y inotify-tools
+        else
+            echo "Error: Cannot determine package manager to install inotify-tools"
+            exit 1
+        fi
     fi
     
     while true; do

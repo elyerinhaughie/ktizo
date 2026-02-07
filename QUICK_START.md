@@ -6,21 +6,34 @@
 ./install.sh
 ```
 
-## Initialize Database
+## Start Everything (Recommended)
 
 ```bash
+# Intelligent run script - handles everything automatically
+./run.sh
+```
+
+This will:
+- ✅ Check and initialize database if needed
+- ✅ Start backend and frontend
+- ✅ Start config watcher
+- ✅ Check dnsmasq status
+- ✅ Show service URLs and log locations
+
+## Manual Start (Alternative)
+
+If you prefer manual control:
+
+```bash
+# 1. Initialize database
 cd backend
 source ../venv/bin/activate
 python -m app.db.migrate
-```
 
-## Start Services
-
-```bash
-# Start backend and frontend
+# 2. Start services
 ./start.sh
 
-# In another terminal, start config watcher (optional)
+# 3. In another terminal, start config watcher (optional)
 ./watch-dnsmasq.sh
 ```
 
@@ -46,23 +59,31 @@ python -m app.db.migrate
 
 **macOS:**
 ```bash
-sudo brew services start dnsmasq
+brew services start dnsmasq
 ```
 
-**Linux:**
+**Linux (systemd):**
 ```bash
-sudo systemctl start dnsmasq
+systemctl start dnsmasq
+```
+
+**Alpine Linux (OpenRC):**
+```bash
+rc-service dnsmasq start
+rc-update add dnsmasq  # Enable on boot
 ```
 
 ## Verify
 
 ```bash
 # Check if dnsmasq is listening
-sudo lsof -i :67 -i :69
+lsof -i :67 -i :69  # macOS/Linux
+netstat -ulnp | grep -E ':(67|69)'  # Alpine/Linux alternative
 
 # Check dnsmasq logs
 tail -f /var/log/dnsmasq.log  # Linux
 tail -f /usr/local/var/log/dnsmasq.log  # macOS
+journalctl -u dnsmasq -f  # systemd
 ```
 
 ## Boot Your VM
