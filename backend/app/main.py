@@ -259,6 +259,31 @@ async def serve_talos_config(mac_address: str):
         # Update last config download time
         device_crud.update_config_download_time(db, mac_address)
 
+        # Reset wipe_on_next_boot flag after config is downloaded
+        # (the wipe will happen on next boot when this config is applied)
+        wipe_flag_was_set = False
+        if device.wipe_on_next_boot:
+            wipe_flag_was_set = True
+            device.wipe_on_next_boot = False
+            db.commit()
+            db.refresh(device)  # Refresh to get updated device
+            logger.info(f"Reset wipe_on_next_boot flag for device {mac_address} after config download")
+            
+            # Regenerate boot.ipxe script to reflect the flag change
+            # This ensures the next PXE boot won't have the wipe parameter
+            try:
+                from app.services.ipxe_generator import IPXEGenerator
+                network_settings = network_crud.get_network_settings(db)
+                tftp_root = network_settings.tftp_root if network_settings else "/var/lib/tftpboot"
+                ipxe_generator = IPXEGenerator(tftp_root=tftp_root)
+                all_devices = device_crud.get_devices(db, skip=0, limit=1000)
+                server_ip = ipxe_generator.get_server_ip_from_settings(db)
+                strict_mode = ipxe_generator.get_strict_mode_from_settings(db)
+                ipxe_generator.generate_boot_script(all_devices, server_ip, strict_mode=strict_mode)
+                logger.info(f"Regenerated boot.ipxe after resetting wipe flag for {mac_address}")
+            except Exception as e:
+                logger.warning(f"Failed to regenerate boot.ipxe after wipe flag reset: {e}")
+
         # Generate config on the fly from base template + device settings
         try:
             config_generator = ConfigGenerator()
@@ -267,6 +292,7 @@ async def serve_talos_config(mac_address: str):
                 node_type=device.role.value if device.role else "worker",
                 hostname=device.hostname,
                 ip_address=device.ip_address,
+                wipe_on_next_boot=False,  # Always False here since we just reset it
                 save_to_disk=True,
             )
             return FastResponse(
