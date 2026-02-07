@@ -48,6 +48,27 @@ async def startup_event():
                     logger.error(f"Failed to download some iPXE bootloaders: {'; '.join(errors)}")
             else:
                 logger.info("All iPXE bootloader files already present in TFTP root")
+            
+            # Build custom chainboot bootloaders with embedded scripts
+            # These auto-load boot.ipxe without showing menu prompts
+            try:
+                from app.services.ipxe_builder import IPXEBuilder
+                server_ip = network_settings.server_ip if network_settings else "10.0.42.2"
+                ipxe_builder = IPXEBuilder(tftp_root=tftp_root, server_ip=server_ip)
+                
+                logger.info("Building custom chainboot bootloaders...")
+                success, errors = ipxe_builder.build_all_custom_bootloaders()
+                if success:
+                    logger.info("Successfully built custom chainboot bootloaders")
+                else:
+                    if "makebin" in str(errors).lower():
+                        logger.warning("makebin tool not available - custom bootloaders not built")
+                        logger.warning("Install iPXE development tools to enable auto-chainloading")
+                        logger.warning("Falling back to standard bootloaders (may show menu prompts)")
+                    else:
+                        logger.error(f"Failed to build some custom bootloaders: {'; '.join(errors)}")
+            except Exception as e:
+                logger.warning(f"Could not build custom bootloaders (non-fatal): {e}")
         finally:
             db.close()
     except Exception as e:

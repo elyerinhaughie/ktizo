@@ -64,8 +64,10 @@ set ipxe_script_path={{ ipxe_boot_script | default('pxe/boot.ipxe') }}
 dhcp-boot=tag:ipxe,http://{{ server_ip }}/{{ ipxe_boot_script | default('pxe/boot.ipxe') }}
 dhcp-option=tag:ipxe,67,http://{{ server_ip }}/{{ ipxe_boot_script | default('pxe/boot.ipxe') }}
 
-# If client doesn't have iPXE yet → send architecture-specific iPXE bootloader
-# Legacy BIOS (x86)
+# If client doesn't have iPXE yet → send custom chainboot bootloader
+# Custom bootloader has embedded script that auto-loads boot.ipxe
+# Legacy BIOS (x86) - use chainboot version if available, fallback to standard
+dhcp-boot=tag:!ipxe,tag:bios,pxe/undionly-chainboot.kpxe
 dhcp-boot=tag:!ipxe,tag:bios,pxe/undionly.kpxe
 
 # UEFI (all architectures - generic iPXE EFI binary)
