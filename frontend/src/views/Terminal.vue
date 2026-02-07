@@ -29,6 +29,7 @@ export default {
       isFitting: false,
       fitTimeout: null,
       handleResize: null,
+      isActive: true,
     }
   },
   computed: {
