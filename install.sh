@@ -125,6 +125,19 @@ install_dependencies() {
         fi
     fi
     
+    # Verify makebin or build tools are available for chainboot bootloaders
+    echo ""
+    echo "Checking for iPXE build tools (for custom chainboot bootloaders)..."
+    if command -v makebin &> /dev/null; then
+        echo "✅ makebin found - custom bootloaders can be built automatically"
+    elif command -v make &> /dev/null && command -v gcc &> /dev/null && command -v git &> /dev/null; then
+        echo "✅ Build tools installed - makebin will be built from iPXE source automatically"
+        echo "   (This happens on first backend startup)"
+    else
+        echo "⚠️  Build tools not fully available - custom bootloaders may not be built"
+        echo "   Standard bootloaders will be used (may show menu prompts)"
+    fi
+    
     echo "✅ System dependencies installed"
 }
 
