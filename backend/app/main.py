@@ -22,31 +22,29 @@ async def startup_event():
     init_db()
 
     # Download iPXE bootloader files if missing (one-time setup)
+    # Files are downloaded directly to TFTP root since we're running as root
     try:
-        logger.info("Checking for iPXE bootloader files...")
-        if not ipxe_downloader.check_all_bootloaders_exist():
-            logger.info("iPXE bootloader files missing, downloading...")
-            success, errors = ipxe_downloader.download_all_bootloaders()
-            if success:
-                logger.info("Successfully downloaded all iPXE bootloader files")
-            else:
-                logger.error(f"Failed to download some iPXE bootloaders: {'; '.join(errors)}")
-        else:
-            logger.info("All iPXE bootloader files already present")
-        
-        # Sync iPXE files to TFTP root (from database settings or default)
         db = SessionLocal()
         try:
+            # Get TFTP root from database settings or use default
             network_settings = network_crud.get_network_settings(db)
             tftp_root = network_settings.tftp_root if network_settings else "/var/lib/tftpboot"
-            logger.info(f"Syncing iPXE files to TFTP root: {tftp_root}")
-            sync_success, sync_errors = ipxe_downloader.sync_to_tftp_root(tftp_root)
-            if sync_success:
-                logger.info("Successfully synced iPXE files to TFTP root")
+            logger.info(f"Using TFTP root: {tftp_root}")
+            
+            # Initialize downloader with TFTP root (downloads directly there)
+            from app.services.ipxe_downloader import IPXEDownloader
+            ipxe_downloader = IPXEDownloader(tftp_root=tftp_root)
+            
+            logger.info("Checking for iPXE bootloader files...")
+            if not ipxe_downloader.check_all_bootloaders_exist():
+                logger.info("iPXE bootloader files missing, downloading...")
+                success, errors = ipxe_downloader.download_all_bootloaders()
+                if success:
+                    logger.info("Successfully downloaded all iPXE bootloader files to TFTP root")
+                else:
+                    logger.error(f"Failed to download some iPXE bootloaders: {'; '.join(errors)}")
             else:
-                logger.warning(f"Synced iPXE files with some errors: {'; '.join(sync_errors)}")
-        except Exception as e:
-            logger.warning(f"Could not sync iPXE files to TFTP root: {e}")
+                logger.info("All iPXE bootloader files already present in TFTP root")
         finally:
             db.close()
     except Exception as e:
