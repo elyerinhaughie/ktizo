@@ -58,6 +58,42 @@ check_port() {
     return 1
 }
 
+# Function to kill process on a port
+kill_port() {
+    local port=$1
+    local name=$2
+    
+    # Try to find and kill process using the port
+    local pid=""
+    
+    # Try lsof first (works on macOS and Linux)
+    if command -v lsof &>/dev/null; then
+        pid=$(lsof -ti :$port 2>/dev/null | head -1)
+    fi
+    
+    # Fallback to netstat/fuser on Linux
+    if [ -z "$pid" ] && command -v fuser &>/dev/null; then
+        pid=$(fuser $port/tcp 2>/dev/null | awk '{print $1}' | head -1)
+    fi
+    
+    # Fallback to ss/netstat
+    if [ -z "$pid" ] && command -v ss &>/dev/null; then
+        pid=$(ss -tlnp 2>/dev/null | grep ":$port " | grep -oP 'pid=\K[0-9]+' | head -1)
+    fi
+    
+    if [ -n "$pid" ] && [ "$pid" != "$$" ]; then
+        echo "   Killing existing process $pid on port $port..."
+        kill "$pid" 2>/dev/null || true
+        sleep 1
+        # Force kill if still running
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+        return 0
+    fi
+    return 1
+}
+
 # Function to wait for service to be ready
 wait_for_service() {
     local url=$1
@@ -177,6 +213,12 @@ fi
 if [ "$BACKEND_RUNNING" = false ]; then
     echo ""
     echo "4. Starting backend..."
+    
+    # Kill any existing process on port 8000
+    if check_port 8000; then
+        kill_port 8000 "backend"
+    fi
+    
     cd "$SCRIPT_DIR"
     mkdir -p "$LOGS_DIR"
     
@@ -206,6 +248,12 @@ fi
 if [ "$FRONTEND_RUNNING" = false ]; then
     echo ""
     echo "5. Starting frontend..."
+    
+    # Kill any existing process on port 5173
+    if check_port 5173; then
+        kill_port 5173 "frontend"
+    fi
+    
     cd "$SCRIPT_DIR/frontend"
     export VITE_API_URL=http://localhost:8000
     
@@ -230,22 +278,44 @@ echo ""
 echo "6. Checking dnsmasq..."
 DNSMASQ_RUNNING=false
 
+# Check multiple ways to detect dnsmasq
 if [ "$OS" = "macos" ]; then
     if brew services list 2>/dev/null | grep -q "dnsmasq.*started"; then
+        DNSMASQ_RUNNING=true
+    fi
+    # Also check if process is running
+    if pgrep -x dnsmasq &>/dev/null; then
         DNSMASQ_RUNNING=true
     fi
 elif [ "$USE_SYSTEMD" = true ]; then
     if systemctl is-active --quiet dnsmasq 2>/dev/null; then
         DNSMASQ_RUNNING=true
     fi
+    # Also check if process is running
+    if pgrep -x dnsmasq &>/dev/null; then
+        DNSMASQ_RUNNING=true
+    fi
 elif [ "$USE_OPENRC" = true ]; then
     if rc-service dnsmasq status &>/dev/null; then
+        DNSMASQ_RUNNING=true
+    fi
+    # Also check if process is running
+    if pgrep -x dnsmasq &>/dev/null; then
         DNSMASQ_RUNNING=true
     fi
 else
     # Fallback: check if process is running
     if pgrep -x dnsmasq &>/dev/null; then
         DNSMASQ_RUNNING=true
+    fi
+fi
+
+# Also check if dnsmasq is listening on required ports
+if [ "$DNSMASQ_RUNNING" = true ]; then
+    # Verify it's actually listening on ports 67 or 69
+    if ! (lsof -i :67 -i :69 &>/dev/null 2>&1 || netstat -ulnp 2>/dev/null | grep -qE ':(67|69)'); then
+        echo -e "${YELLOW}⚠${NC}  dnsmasq process found but not listening on ports 67/69"
+        DNSMASQ_RUNNING=false
     fi
 fi
 
@@ -271,21 +341,39 @@ else
                 echo -e "${RED}✗${NC} Failed to start dnsmasq. Check: brew services list dnsmasq"
             fi
         elif [ "$USE_SYSTEMD" = true ]; then
-            systemctl start dnsmasq 2>&1
+            echo "   Attempting to start dnsmasq with systemctl..."
+            START_OUTPUT=$(systemctl start dnsmasq 2>&1)
+            START_EXIT=$?
             sleep 2
             if systemctl is-active --quiet dnsmasq 2>/dev/null; then
                 echo -e "${GREEN}✓${NC} dnsmasq started"
             else
-                echo -e "${RED}✗${NC} dnsmasq failed to start. Check: systemctl status dnsmasq"
-                systemctl status dnsmasq --no-pager -l 2>&1 | head -10
+                echo -e "${RED}✗${NC} dnsmasq failed to start (exit code: $START_EXIT)"
+                if [ -n "$START_OUTPUT" ]; then
+                    echo "   Error output: $START_OUTPUT"
+                fi
+                echo "   Full status:"
+                systemctl status dnsmasq --no-pager -l 2>&1 | head -15
+                echo ""
+                echo "   Common issues:"
+                echo "   - Config file error: dnsmasq --test -C /etc/dnsmasq.conf"
+                echo "   - Port already in use: lsof -i :67 -i :69"
+                echo "   - Missing config: Check /etc/dnsmasq.conf exists"
             fi
         elif [ "$USE_OPENRC" = true ]; then
-            rc-service dnsmasq start 2>&1
+            echo "   Attempting to start dnsmasq with rc-service..."
+            START_OUTPUT=$(rc-service dnsmasq start 2>&1)
+            START_EXIT=$?
             sleep 2
             if rc-service dnsmasq status &>/dev/null; then
                 echo -e "${GREEN}✓${NC} dnsmasq started"
             else
-                echo -e "${RED}✗${NC} dnsmasq failed to start. Check: rc-service dnsmasq status"
+                echo -e "${RED}✗${NC} dnsmasq failed to start (exit code: $START_EXIT)"
+                if [ -n "$START_OUTPUT" ]; then
+                    echo "   Error output: $START_OUTPUT"
+                fi
+                echo "   Check status: rc-service dnsmasq status"
+                echo "   Check config: dnsmasq --test -C /etc/dnsmasq.conf"
             fi
         else
             # Fallback: try to start dnsmasq directly
