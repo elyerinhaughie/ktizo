@@ -93,3 +93,17 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+# Add explicit OPTIONS handler for CORS preflight (backup)
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    """Handle CORS preflight requests"""
+    from fastapi import Response
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
