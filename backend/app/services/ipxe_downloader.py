@@ -104,12 +104,17 @@ class IPXEDownloader:
                     f.write(response.content)
                 
                 # Set proper permissions on the file (readable by all, writable by owner)
+                # TFTP requires files to be world-readable
                 if os.getuid() == 0:
                     try:
+                        # 644 permissions: owner read/write, group/others read
                         os.chmod(output_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
                         os.chown(output_path, 0, 0)  # root:root
-                    except Exception:
-                        pass  # Ignore chmod/chown errors
+                        # Also ensure parent directory is world-readable and executable (755)
+                        os.chmod(output_path.parent, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+                        os.chown(output_path.parent, 0, 0)
+                    except Exception as perm_err:
+                        logger.warning(f"Could not set file permissions (non-fatal): {perm_err}")
                 
                 logger.info(f"Successfully downloaded {filename} ({len(response.content)} bytes) to {output_path}")
                 return True
