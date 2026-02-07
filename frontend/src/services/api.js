@@ -5,7 +5,7 @@ import axios from 'axios'
 function getApiBaseUrl() {
   // Check environment variable first
   if (import.meta.env.VITE_API_URL) {
-    console.log('Using VITE_API_URL:', import.meta.env.VITE_API_URL)
+    console.log('[API] Using VITE_API_URL:', import.meta.env.VITE_API_URL)
     return import.meta.env.VITE_API_URL
   }
   
@@ -13,13 +13,28 @@ function getApiBaseUrl() {
   if (typeof window !== 'undefined' && window.location) {
     const protocol = window.location.protocol
     const hostname = window.location.hostname
+    const port = window.location.port
     const apiUrl = `${protocol}//${hostname}:8000`
-    console.log('Detected API URL from current hostname:', apiUrl, '(hostname:', hostname, ')')
+    
+    // Debug logging
+    console.log('[API] Window location:', {
+      protocol,
+      hostname,
+      port,
+      href: window.location.href
+    })
+    console.log('[API] Detected API URL:', apiUrl)
+    
+    // Warn if hostname is localhost but we're on a non-standard port (might indicate proxy/port forwarding)
+    if (hostname === 'localhost' && port && port !== '5173' && port !== '8000') {
+      console.warn('[API] Warning: hostname is localhost but port is', port, '- API URL will be localhost:8000')
+    }
+    
     return apiUrl
   }
   
   // Fallback for SSR or when window is not available
-  console.warn('Window not available, using localhost fallback')
+  console.warn('[API] Window not available, using localhost fallback')
   return 'http://localhost:8000'
 }
 
@@ -34,8 +49,20 @@ const apiClient = axios.create({
 // This ensures we always use the current hostname, even if accessed from remote IP
 apiClient.interceptors.request.use(config => {
   // Always recalculate baseURL to get current hostname
-  config.baseURL = getApiBaseUrl()
-  console.log('API request to:', config.baseURL + (config.url || ''))
+  const apiBaseUrl = getApiBaseUrl()
+  config.baseURL = apiBaseUrl
+  
+  // Ensure URL is absolute (not relative) to bypass Vite proxy
+  // If config.url starts with /, make it relative to baseURL
+  if (config.url && config.url.startsWith('/')) {
+    // URL is already relative, baseURL will be prepended by axios
+    // But we want to ensure we're using the full absolute URL
+    const fullUrl = apiBaseUrl + config.url
+    console.log('API request:', config.method?.toUpperCase(), fullUrl)
+  } else {
+    console.log('API request:', config.method?.toUpperCase(), config.baseURL + (config.url || ''))
+  }
+  
   return config
 })
 
