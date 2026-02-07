@@ -215,15 +215,38 @@ else
     echo -e "${GREEN}✓${NC} Frontend is not running"
 fi
 
-# Step 4: Start backend if not running
-if [ "$BACKEND_RUNNING" = false ]; then
-    echo ""
-    echo "4. Starting backend..."
-    
-    # Kill any existing process on port 8000
-    if check_port 8000; then
-        kill_port 8000 "backend"
+# Step 4: Start backend (always restart to ensure latest code)
+echo ""
+echo "4. Starting backend..."
+
+# Always kill any existing backend process to ensure we're running latest code
+if [ "$BACKEND_RUNNING" = true ]; then
+    echo "   Backend is running, but restarting to ensure latest code..."
+fi
+
+# Kill any existing process on port 8000
+if check_port 8000; then
+    kill_port 8000 "backend"
+fi
+
+# Also kill by PID file if it exists
+if [ -f "$SCRIPT_DIR/.backend.pid" ]; then
+    OLD_PID=$(cat "$SCRIPT_DIR/.backend.pid" 2>/dev/null)
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        echo "   Killing existing backend process (PID: $OLD_PID)..."
+        kill "$OLD_PID" 2>/dev/null || true
+        sleep 1
+        if kill -0 "$OLD_PID" 2>/dev/null; then
+            kill -9 "$OLD_PID" 2>/dev/null || true
+        fi
     fi
+fi
+
+# Kill any uvicorn processes for this app
+pkill -f "uvicorn app.main:app" 2>/dev/null || true
+sleep 1
+
+if [ "$BACKEND_RUNNING" = false ]; then
     
     cd "$SCRIPT_DIR"
     # LOGS_DIR already created at top of script
