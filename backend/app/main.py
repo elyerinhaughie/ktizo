@@ -51,24 +51,32 @@ async def startup_event():
             
             # Build custom chainboot bootloaders with embedded scripts
             # These auto-load boot.ipxe without showing menu prompts
+            # The builder will automatically attempt to install/build makebin if needed
             try:
                 from app.services.ipxe_builder import IPXEBuilder
                 server_ip = network_settings.server_ip if network_settings else "10.0.42.2"
                 ipxe_builder = IPXEBuilder(tftp_root=tftp_root, server_ip=server_ip)
                 
-                logger.info("Building custom chainboot bootloaders...")
+                logger.info("Building custom chainboot bootloaders (auto-installing tools if needed)...")
                 success, errors = ipxe_builder.build_all_custom_bootloaders()
                 if success:
                     logger.info("Successfully built custom chainboot bootloaders")
+                    logger.info("Custom bootloaders will auto-chainload boot.ipxe without menu prompts")
                 else:
-                    if "makebin" in str(errors).lower():
-                        logger.warning("makebin tool not available - custom bootloaders not built")
-                        logger.warning("Install iPXE development tools to enable auto-chainloading")
+                    if "makebin" in str(errors).lower() or "not available" in str(errors).lower():
+                        logger.warning("Could not build custom bootloaders - makebin unavailable")
+                        logger.warning("The builder attempted to install/build makebin automatically")
+                        logger.warning("You may need to install build tools manually:")
+                        logger.warning("  - git, make, gcc (for building from source)")
+                        logger.warning("  - Or install iPXE development packages")
                         logger.warning("Falling back to standard bootloaders (may show menu prompts)")
+                        logger.info("Chainboot script created at TFTP root - can be used manually")
                     else:
                         logger.error(f"Failed to build some custom bootloaders: {'; '.join(errors)}")
             except Exception as e:
                 logger.warning(f"Could not build custom bootloaders (non-fatal): {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
         finally:
             db.close()
     except Exception as e:

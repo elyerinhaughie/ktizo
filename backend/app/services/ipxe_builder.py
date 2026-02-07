@@ -43,6 +43,134 @@ class IPXEBuilder:
         except Exception:
             return False
     
+    def _install_makebin(self) -> bool:
+        """
+        Attempt to install or build makebin automatically.
+        
+        Returns:
+            True if makebin is now available, False otherwise
+        """
+        if self._check_makebin():
+            return True
+        
+        logger.info("makebin not found, attempting to install/build...")
+        
+        # Method 1: Try to install via package manager
+        install_commands = [
+            ["apt-get", "update", "-qq"],
+            ["apt-get", "install", "-y", "ipxe", "ipxe-qemu"],
+            # Some distros have makebin in different packages
+            ["apt-get", "install", "-y", "ipxe-tools"],
+        ]
+        
+        if os.getuid() == 0:  # Only if running as root
+            try:
+                for cmd in install_commands:
+                    try:
+                        result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=60
+                        )
+                        if result.returncode == 0:
+                            logger.info(f"Installed package via: {cmd[0]}")
+                            if self._check_makebin():
+                                return True
+                    except (subprocess.TimeoutExpired, FileNotFoundError):
+                        continue
+            except Exception as e:
+                logger.debug(f"Package installation failed: {e}")
+        
+        # Method 2: Try to download pre-built makebin
+        # (This would require knowing where to get it)
+        
+        # Method 3: Build from iPXE source
+        return self._build_makebin_from_source()
+    
+    def _build_makebin_from_source(self) -> bool:
+        """
+        Build makebin from iPXE source code.
+        
+        Returns:
+            True if makebin was built successfully, False otherwise
+        """
+        if os.getuid() != 0:
+            logger.warning("Cannot build makebin: not running as root")
+            return False
+        
+        ipxe_dirs = [
+            Path("/tmp/ipxe"),
+            Path("/usr/src/ipxe"),
+            Path.home() / "ipxe",
+        ]
+        
+        # Check if iPXE source already exists
+        ipxe_dir = None
+        for dir_path in ipxe_dirs:
+            if dir_path.exists() and (dir_path / "src" / "Makefile").exists():
+                ipxe_dir = dir_path
+                logger.info(f"Found existing iPXE source at {ipxe_dir}")
+                break
+        
+        # Clone if not found
+        if ipxe_dir is None:
+            ipxe_dir = Path("/tmp/ipxe")
+            logger.info("Cloning iPXE source code...")
+            try:
+                if ipxe_dir.exists():
+                    shutil.rmtree(ipxe_dir)
+                
+                result = subprocess.run(
+                    ["git", "clone", "--depth", "1", "https://github.com/ipxe/ipxe.git", str(ipxe_dir)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                
+                if result.returncode != 0:
+                    logger.error(f"Failed to clone iPXE: {result.stderr}")
+                    return False
+            except subprocess.TimeoutExpired:
+                logger.error("Timeout cloning iPXE source")
+                return False
+            except Exception as e:
+                logger.error(f"Error cloning iPXE: {e}")
+                return False
+        
+        # Build makebin
+        try:
+            logger.info("Building makebin from iPXE source...")
+            result = subprocess.run(
+                ["make", "-C", str(ipxe_dir / "src"), "bin/makebin"],
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minutes for build
+            )
+            
+            if result.returncode == 0:
+                makebin_path = ipxe_dir / "src" / "bin" / "makebin"
+                if makebin_path.exists():
+                    # Copy to a location in PATH
+                    target_path = Path("/usr/local/bin/makebin")
+                    shutil.copy(makebin_path, target_path)
+                    os.chmod(target_path, 0o755)
+                    logger.info(f"Built and installed makebin to {target_path}")
+                    return self._check_makebin()
+                else:
+                    logger.error("makebin build succeeded but file not found")
+                    return False
+            else:
+                logger.error(f"makebin build failed: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error("Timeout building makebin")
+            return False
+        except Exception as e:
+            logger.error(f"Error building makebin: {e}")
+            return False
+    
     def _create_chainboot_script(self, use_http: bool = True) -> str:
         """
         Create the embedded chainboot script that auto-loads boot.ipxe.
