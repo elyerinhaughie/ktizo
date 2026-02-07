@@ -58,9 +58,11 @@ pxe-service=tag:!ipxe,BC_EFI,"Boot from network (UEFI)",pxe/ipxe.efi
 # ====================
 
 # If client already has iPXE loaded → send boot.ipxe directly
-# Also set bootfile-name explicitly for iPXE to auto-chainload
-dhcp-boot=tag:ipxe,{{ ipxe_boot_script | default('pxe/boot.ipxe') }}
-dhcp-option=tag:ipxe,67,{{ ipxe_boot_script | default('pxe/boot.ipxe') }}
+# Use HTTP URL for better iPXE auto-execution (iPXE auto-executes HTTP-loaded scripts)
+# Format: http://server-ip/path/to/boot.ipxe
+set ipxe_script_path={{ ipxe_boot_script | default('pxe/boot.ipxe') }}
+dhcp-boot=tag:ipxe,http://{{ server_ip }}/{{ ipxe_boot_script | default('pxe/boot.ipxe') }}
+dhcp-option=tag:ipxe,67,http://{{ server_ip }}/{{ ipxe_boot_script | default('pxe/boot.ipxe') }}
 
 # If client doesn't have iPXE yet → send architecture-specific iPXE bootloader
 # Legacy BIOS (x86)

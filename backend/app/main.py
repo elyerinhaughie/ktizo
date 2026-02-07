@@ -1,12 +1,15 @@
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from app.api import network_router, cluster_router, device_router, volume_router
 from app.db.database import init_db, SessionLocal
 from app.services.talos_downloader import talos_downloader
 from app.services.ipxe_downloader import ipxe_downloader
 from app.crud import network as network_crud
+from pathlib import Path
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +131,27 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+@app.get("/pxe/boot.ipxe")
+async def serve_boot_ipxe():
+    """Serve boot.ipxe script via HTTP for iPXE auto-execution"""
+    db = SessionLocal()
+    try:
+        network_settings = network_crud.get_network_settings(db)
+        tftp_root = network_settings.tftp_root if network_settings else "/var/lib/tftpboot"
+        boot_ipxe_path = Path(tftp_root) / "pxe" / "boot.ipxe"
+        
+        if boot_ipxe_path.exists():
+            return FileResponse(
+                str(boot_ipxe_path),
+                media_type="text/plain",
+                headers={"Content-Type": "text/plain; charset=utf-8"}
+            )
+        else:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="boot.ipxe not found")
+    finally:
+        db.close()
 
 # Add explicit OPTIONS handler for CORS preflight (backup)
 @app.options("/{full_path:path}")
