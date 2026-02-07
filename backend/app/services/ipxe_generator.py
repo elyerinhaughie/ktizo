@@ -108,7 +108,8 @@ class IPXEGenerator:
                     'mac_address': device.mac_address,
                     'role': device.role.value,
                     'ip_address': device.ip_address or '0.0.0.0',
-                    'hostname': device.hostname or f'node-{device.mac_address[-8:]}'
+                    'hostname': device.hostname or f'node-{device.mac_address[-8:]}',
+                    'wipe_on_next_boot': device.wipe_on_next_boot if hasattr(device, 'wipe_on_next_boot') else False
                 })
 
             # Load template

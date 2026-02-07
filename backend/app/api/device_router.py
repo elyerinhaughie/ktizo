@@ -282,6 +282,21 @@ async def approve_device(device_id: int, approval_data: DeviceApprovalRequest, d
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
+    # If this is a control plane node, update talosconfig with endpoint and node
+    if device.role == DeviceRole.CONTROLPLANE and device.ip_address:
+        cp_ip = device.ip_address
+        if '/' in cp_ip:
+            cp_ip = cp_ip.split('/')[0]
+        
+        try:
+            from app.api.cluster_router import update_talosconfig_endpoint_and_node
+            if update_talosconfig_endpoint_and_node(cp_ip):
+                logger.info(f"Updated talosconfig with new control plane node: {cp_ip}")
+            else:
+                logger.warning(f"Failed to update talosconfig with control plane node: {cp_ip}")
+        except Exception as e:
+            logger.warning(f"Error updating talosconfig after device approval: {e}")
+
     # Notify WebSocket clients of device approval
     await websocket_manager.broadcast_event({
         "type": "device_approved",

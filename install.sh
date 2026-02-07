@@ -193,10 +193,17 @@ setup_node() {
 
 # Function to download talosctl
 download_talosctl() {
-    echo ""
-    echo "Downloading talosctl..."
+    local TALOS_VERSION="${1:-}"
     
-    cd "$INSTALL_DIR/backend"
+    echo ""
+    echo "Installing talosctl to project directory..."
+    
+    # Install to project backend directory
+    TALOSCTL_INSTALL_DIR="$INSTALL_DIR/backend"
+    
+    # Ensure install directory exists
+    mkdir -p "$TALOSCTL_INSTALL_DIR"
+    cd /tmp
     
     # Detect architecture
     ARCH=$(uname -m)
@@ -208,11 +215,37 @@ download_talosctl() {
         TALOS_ARCH="amd64"  # Default fallback
     fi
     
-    # Get latest version
-    # Use sed instead of grep -P for better Alpine compatibility
-    TALOS_VERSION=$(curl -s https://api.github.com/repos/siderolabs/talos/releases/latest | sed -n 's/.*"tag_name": "\([^"]*\)".*/\1/p' | head -1)
+    # Get version - use provided version, or check database, or use latest
     if [ -z "$TALOS_VERSION" ]; then
-        TALOS_VERSION="v1.7.0"
+        # Try to get version from database if it exists
+        if [ -f "$INSTALL_DIR/backend/app.db" ]; then
+            # Try to extract talos_version from database (SQLite)
+            TALOS_VERSION=$(sqlite3 "$INSTALL_DIR/backend/app.db" "SELECT talos_version FROM cluster_settings LIMIT 1" 2>/dev/null || echo "")
+            if [ -n "$TALOS_VERSION" ]; then
+                echo "Using Talos version from cluster settings: $TALOS_VERSION"
+                # Ensure version has 'v' prefix
+                if [[ ! "$TALOS_VERSION" =~ ^v ]]; then
+                    TALOS_VERSION="v${TALOS_VERSION}"
+                fi
+            fi
+        fi
+        
+        # If still no version, get latest
+        if [ -z "$TALOS_VERSION" ]; then
+            TALOS_VERSION=$(curl -s https://api.github.com/repos/siderolabs/talos/releases/latest | sed -n 's/.*"tag_name": "\([^"]*\)".*/\1/p' | head -1)
+            if [ -z "$TALOS_VERSION" ]; then
+                TALOS_VERSION="v1.12.2"
+                echo "Warning: Could not determine latest Talos version, using $TALOS_VERSION"
+            else
+                echo "Using latest Talos version: $TALOS_VERSION"
+            fi
+        fi
+    else
+        # Ensure provided version has 'v' prefix
+        if [[ ! "$TALOS_VERSION" =~ ^v ]]; then
+            TALOS_VERSION="v${TALOS_VERSION}"
+        fi
+        echo "Using specified Talos version: $TALOS_VERSION"
     fi
     
     # Download talosctl
@@ -225,10 +258,43 @@ download_talosctl() {
     TALOS_URL="https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/talosctl-${TALOS_OS}-${TALOS_ARCH}"
     
     echo "Downloading talosctl from: $TALOS_URL"
-    curl -L "$TALOS_URL" -o talosctl
-    chmod +x talosctl
     
-    echo "✅ talosctl downloaded ($TALOS_VERSION)"
+    # Download to temp location first
+    TEMP_TALOSCTL="/tmp/talosctl-${TALOS_VERSION}"
+    
+    # Download with error handling
+    if curl -L "$TALOS_URL" -o "$TEMP_TALOSCTL"; then
+        chmod +x "$TEMP_TALOSCTL"
+        
+        # Verify the file was downloaded and is executable
+        if [ -f "$TEMP_TALOSCTL" ] && [ -x "$TEMP_TALOSCTL" ]; then
+            # Test that it works
+            if "$TEMP_TALOSCTL" version --client >/dev/null 2>&1; then
+                # Install to project directory
+                if cp "$TEMP_TALOSCTL" "$TALOSCTL_INSTALL_DIR/talosctl"; then
+                    chmod +x "$TALOSCTL_INSTALL_DIR/talosctl"
+                    echo "✅ talosctl installed successfully ($TALOS_VERSION)"
+                    echo "   Location: $TALOSCTL_INSTALL_DIR/talosctl"
+                    echo "✅ talosctl verified and working"
+                    # Clean up temp file
+                    rm -f "$TEMP_TALOSCTL"
+                else
+                    echo "❌ Error: Failed to install talosctl to $TALOSCTL_INSTALL_DIR"
+                    exit 1
+                fi
+            else
+                echo "⚠️  Warning: talosctl downloaded but version check failed"
+                exit 1
+            fi
+        else
+            echo "❌ Error: talosctl download failed or file is not executable"
+            exit 1
+        fi
+    else
+        echo "❌ Error: Failed to download talosctl from $TALOS_URL"
+        echo "   Please check your internet connection and try again"
+        exit 1
+    fi
 }
 
 # Function to download kubectl
@@ -248,10 +314,13 @@ download_kubectl() {
         KUBECTL_ARCH="amd64"  # Default fallback
     fi
     
-    # Get latest stable version
-    KUBECTL_VERSION=$(curl -s https://dl.k8s.io/release/stable.txt | tr -d 'v')
-    if [ -z "$KUBECTL_VERSION" ]; then
+    # Get latest stable version (follow redirects)
+    KUBECTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt | tr -d 'v' | tr -d '\n' | tr -d '\r')
+    if [ -z "$KUBECTL_VERSION" ] || [[ "$KUBECTL_VERSION" =~ ^[^0-9] ]]; then
         KUBECTL_VERSION="1.28.0"
+        echo "Warning: Could not determine latest kubectl version, using $KUBECTL_VERSION"
+    else
+        echo "Using kubectl version: $KUBECTL_VERSION"
     fi
     
     # Download kubectl
@@ -267,16 +336,36 @@ download_kubectl() {
     KUBECTL_URL="https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/${KUBECTL_OS}/${KUBECTL_ARCH}/kubectl"
     KUBECTL_VERSIONED="kubectl-versions/kubectl-${KUBECTL_VERSION}"
     
-    echo "Downloading kubectl ${KUBECTL_VERSION} from: $KUBECTL_URL"
-    curl -L "$KUBECTL_URL" -o "$KUBECTL_VERSIONED"
-    chmod +x "$KUBECTL_VERSIONED"
+    echo "Downloading kubectl ${KUBECTL_VERSION} to project directory..."
+    echo "URL: $KUBECTL_URL"
     
-    # Create symlink to default version
-    ln -sf "$KUBECTL_VERSIONED" kubectl
-    
-    echo "✅ kubectl downloaded ($KUBECTL_VERSION)"
-    echo "   kubectl is available at: $INSTALL_DIR/backend/kubectl"
-    echo "   Versioned binaries stored in: $INSTALL_DIR/backend/kubectl-versions/"
+    # Download with error handling
+    if curl -L "$KUBECTL_URL" -o "$KUBECTL_VERSIONED"; then
+        chmod +x "$KUBECTL_VERSIONED"
+        
+        # Verify it works (check if it's actually a binary, not HTML)
+        if file "$KUBECTL_VERSIONED" | grep -q "ELF\|Mach-O\|executable"; then
+            # Test that it works
+            if "$KUBECTL_VERSIONED" version --client >/dev/null 2>&1; then
+                # Create symlink to default version
+                ln -sf "$KUBECTL_VERSIONED" kubectl
+                echo "✅ kubectl downloaded ($KUBECTL_VERSION)"
+                echo "   Location: $INSTALL_DIR/backend/kubectl"
+                echo "✅ kubectl verified and working"
+            else
+                echo "⚠️  Warning: kubectl downloaded but version check failed"
+            fi
+        else
+            echo "❌ Error: Downloaded file is not a valid binary (may be HTML/error page)"
+            echo "   Please check the download URL and try again"
+            rm -f "$KUBECTL_VERSIONED"
+            exit 1
+        fi
+    else
+        echo "❌ Error: Failed to download kubectl from $KUBECTL_URL"
+        echo "   Please check your internet connection and try again"
+        exit 1
+    fi
 }
 
 # Function to create directories
@@ -538,6 +627,50 @@ EOF
     echo "✅ Startup scripts created"
 }
 
+# Function to update PATH
+update_path() {
+    echo ""
+    echo "Updating PATH to include ktizo backend directory..."
+    
+    # Get absolute path to backend directory
+    BACKEND_BIN_DIR="$(cd "$INSTALL_DIR/backend" && pwd)"
+    
+    # Add backend directory to PATH for current session
+    export PATH="$BACKEND_BIN_DIR:$PATH"
+    
+    # Update shell profiles
+    SHELL_PROFILES=(
+        "$HOME/.bashrc"
+        "$HOME/.bash_profile"
+        "$HOME/.zshrc"
+        "$HOME/.profile"
+    )
+    
+    PATH_LINE="export PATH=\"$BACKEND_BIN_DIR:\$PATH\""
+    
+    for profile in "${SHELL_PROFILES[@]}"; do
+        if [ -f "$profile" ]; then
+            # Remove old ktizo PATH entries if they exist
+            sed -i.bak '/# Added by Ktizo installer/,+1d' "$profile" 2>/dev/null || true
+            # Add new PATH entry
+            echo "" >> "$profile"
+            echo "# Added by Ktizo installer" >> "$profile"
+            echo "$PATH_LINE" >> "$profile"
+            echo "✅ Updated $profile"
+        fi
+    done
+    
+    # Also update /etc/profile.d for system-wide (if root)
+    if [ "$EUID" -eq 0 ] && [ -d "/etc/profile.d" ]; then
+        KTIZO_PATH_FILE="/etc/profile.d/ktizo-path.sh"
+        echo "$PATH_LINE" > "$KTIZO_PATH_FILE"
+        chmod +x "$KTIZO_PATH_FILE"
+        echo "✅ Created system-wide PATH update: $KTIZO_PATH_FILE"
+    fi
+    
+    echo "✅ PATH updated (includes $BACKEND_BIN_DIR)"
+}
+
 # Main installation
 main() {
     echo "Starting installation..."
@@ -545,6 +678,7 @@ main() {
     
     install_dependencies
     create_directories
+    update_path
     setup_python
     setup_node
     download_talosctl

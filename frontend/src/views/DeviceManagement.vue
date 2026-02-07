@@ -150,6 +150,17 @@
                 ✗
               </button>
               <button
+                v-if="device.status === 'approved'"
+                @click="toggleWipeFlag(device)"
+                :class="['wipe-btn', { active: device.wipe_on_next_boot }]"
+                :title="device.wipe_on_next_boot ? 'Cancel scheduled wipe' : 'Wipe and reinstall on next boot'"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M2 3h12M5.5 3V2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1M6.5 6v6M9.5 6v6M3.5 3l.5 10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l.5-10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span v-if="device.wipe_on_next_boot" class="wipe-label">WIPE</span>
+              </button>
+              <button
                 @click="editDevice(device)"
                 class="edit-btn"
                 title="Edit"
@@ -228,6 +239,19 @@
               rows="3"
               placeholder="Additional notes about this device..."
             ></textarea>
+          </div>
+
+          <div v-if="editingDevice && editingDevice.status === 'approved'" class="form-group">
+            <label class="checkbox-label">
+              <input
+                v-model="deviceForm.wipe_on_next_boot"
+                type="checkbox"
+              />
+              <span>Wipe on Next Boot</span>
+            </label>
+            <small class="info-text">
+              If enabled, this device will be wiped and reinstalled on its next boot. The flag will be automatically reset after the config is downloaded.
+            </small>
           </div>
 
           <div class="modal-actions">
@@ -334,7 +358,8 @@ export default {
         hostname: '',
         ip_address: '',
         role: 'worker',
-        notes: ''
+        notes: '',
+        wipe_on_next_boot: false
       },
       approvalForm: {
         hostname: '',
@@ -554,6 +579,24 @@ export default {
         this.showMessage('Failed to delete device', 'error')
       }
     },
+    async toggleWipeFlag(device) {
+      const newValue = !device.wipe_on_next_boot
+      const action = newValue ? 'set' : 'unset'
+      
+      if (newValue && !confirm(`Set wipe on next boot for ${device.hostname || device.mac_address}? The device will be wiped and reinstalled on its next boot.`)) {
+        return
+      }
+
+      try {
+        await apiService.updateDevice(device.id, {
+          wipe_on_next_boot: newValue
+        })
+        this.showMessage(`Wipe flag ${action} successfully`, 'success')
+        await this.loadDevices()
+      } catch (error) {
+        this.showMessage(error.response?.data?.detail || `Failed to ${action} wipe flag`, 'error')
+      }
+    },
     editDevice(device) {
       this.editingDevice = device
 
@@ -571,7 +614,8 @@ export default {
         hostname: device.hostname || '',
         ip_address: device.ip_address || '',
         role: device.role,
-        notes: device.notes || ''
+        notes: device.notes || '',
+        wipe_on_next_boot: device.wipe_on_next_boot || false
       }
     },
     async saveDevice() {
@@ -598,7 +642,8 @@ export default {
         hostname: '',
         ip_address: '',
         role: 'worker',
-        notes: ''
+        notes: '',
+        wipe_on_next_boot: false
       }
     },
     async bootstrapCluster() {
@@ -938,6 +983,36 @@ tr:hover {
   background: #e5e7eb;
 }
 
+.wipe-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.wipe-btn:hover {
+  background: #fecaca;
+}
+
+.wipe-btn.active {
+  background: #dc2626;
+  color: white;
+  font-weight: 600;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.6rem;
+  animation: wipe-pulse 2s ease-in-out infinite;
+}
+
+.wipe-label {
+  line-height: 1;
+}
+
+@keyframes wipe-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 /* Modal styles */
 .modal-overlay {
   position: fixed;
@@ -1091,5 +1166,17 @@ tr:hover {
 .text-muted {
   color: #9ca3af;
   font-style: italic;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: auto;
+  cursor: pointer;
 }
 </style>

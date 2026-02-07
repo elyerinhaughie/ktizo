@@ -169,39 +169,72 @@ export default {
       })
     },
     connect() {
+      // Only connect if not already connected or connecting
+      if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
+        return
+      }
+      
       this.connectionStatus = 'connecting'
 
       const hostname = window.location.hostname || 'localhost'
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      this.ws = new WebSocket(`${wsProtocol}//${hostname}:8000/ws/terminal`)
+      
+      try {
+        this.ws = new WebSocket(`${wsProtocol}//${hostname}:8000/ws/terminal`)
 
-      this.ws.onopen = () => {
-        this.connectionStatus = 'connected'
-        // Send initial size after a brief delay
-        setTimeout(() => {
-          this.safeFit()
-          if (this.fitAddon) {
-            const dims = this.fitAddon.proposeDimensions()
-            if (dims) {
-              this.ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }))
+        this.ws.onopen = () => {
+          this.connectionStatus = 'connected'
+          // Send initial size after a brief delay
+          setTimeout(() => {
+            this.safeFit()
+            if (this.fitAddon) {
+              const dims = this.fitAddon.proposeDimensions()
+              if (dims) {
+                this.ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }))
+              }
             }
-          }
-        }, 100)
-      }
-
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data)
-        if (msg.type === 'output') {
-          this.term.write(msg.data)
+          }, 100)
         }
-      }
 
-      this.ws.onclose = () => {
-        this.connectionStatus = 'disconnected'
-      }
+        this.ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data)
+          if (msg.type === 'output') {
+            this.term.write(msg.data)
+          }
+        }
 
-      this.ws.onerror = () => {
-        this.connectionStatus = 'disconnected'
+        this.ws.onclose = (event) => {
+          // Only set to disconnected if it was previously connected
+          // If it was connecting, give it a moment to retry
+          if (this.connectionStatus === 'connected') {
+            this.connectionStatus = 'disconnected'
+          } else if (this.connectionStatus === 'connecting') {
+            // If connection failed during initial connect, wait a bit before showing disconnected
+            setTimeout(() => {
+              if (this.connectionStatus === 'connecting') {
+                this.connectionStatus = 'disconnected'
+              }
+            }, 2000)
+          }
+        }
+
+        this.ws.onerror = (error) => {
+          // Don't immediately set to disconnected - wait to see if onclose fires
+          // This prevents showing disconnected during initial connection attempts
+          console.warn('WebSocket error:', error)
+          // Only set to disconnected if we've been trying for a while
+          setTimeout(() => {
+            if (this.connectionStatus === 'connecting' && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
+              this.connectionStatus = 'disconnected'
+            }
+          }, 3000)
+        }
+      } catch (error) {
+        console.error('Failed to create WebSocket:', error)
+        // Only set to disconnected after a delay to avoid flickering
+        setTimeout(() => {
+          this.connectionStatus = 'disconnected'
+        }, 1000)
       }
     },
     setupResizeObserver() {

@@ -103,6 +103,9 @@ def approve_device(db: Session, device_id: int) -> Optional[Device]:
 
     db_device.status = DeviceStatus.APPROVED
     db_device.approved_at = datetime.utcnow()
+    # Set wipe_on_next_boot to True by default when approving a device
+    # This ensures the device gets a fresh installation
+    db_device.wipe_on_next_boot = True
     db.commit()
     db.refresh(db_device)
 

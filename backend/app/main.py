@@ -227,6 +227,51 @@ async def register_pxe_device(mac_address: str):
     finally:
         db.close()
 
+# Called by boot.ipxe when a device is about to boot with wipe flag set.
+# Resets the flag in the DB and regenerates boot.ipxe so the next boot is clean.
+@app.get("/pxe/wipe-started/{mac_address}")
+async def pxe_wipe_started(mac_address: str):
+    """Signal from iPXE that a wipe boot is starting. Resets the wipe flag."""
+    from app.crud import device as device_crud
+    from app.services.ipxe_generator import IPXEGenerator
+    from app.services.websocket_manager import websocket_manager
+
+    db = SessionLocal()
+    try:
+        device = device_crud.get_device_by_mac(db, mac_address)
+        if not device:
+            return Response(content="unknown", media_type="text/plain")
+
+        if device.wipe_on_next_boot:
+            device.wipe_on_next_boot = False
+            db.commit()
+            db.refresh(device)
+            logger.info(f"Wipe started for {mac_address}, reset wipe_on_next_boot flag")
+
+            # Regenerate boot.ipxe so subsequent boots don't wipe again
+            try:
+                network_settings = network_crud.get_network_settings(db)
+                tftp_root = network_settings.tftp_root if network_settings else "/var/lib/tftpboot"
+                ipxe_generator = IPXEGenerator(tftp_root=tftp_root)
+                all_devices = device_crud.get_devices(db, skip=0, limit=1000)
+                server_ip = ipxe_generator.get_server_ip_from_settings(db)
+                strict_mode = ipxe_generator.get_strict_mode_from_settings(db)
+                ipxe_generator.generate_boot_script(all_devices, server_ip, strict_mode=strict_mode)
+                logger.info(f"Regenerated boot.ipxe after wipe-started for {mac_address}")
+            except Exception as e:
+                logger.warning(f"Failed to regenerate boot.ipxe after wipe-started: {e}")
+
+            # Notify frontend
+            await websocket_manager.broadcast_event({
+                "type": "device_wipe_started",
+                "mac_address": mac_address,
+                "hostname": device.hostname,
+            })
+
+        return Response(content="ok", media_type="text/plain")
+    finally:
+        db.close()
+
 # Serve Talos machine configs via HTTP at /talos/configs/{mac}.yaml
 # This is the URL format used by iPXE boot scripts (no /api/v1 prefix)
 # Generates configs on the fly from base templates + device settings
@@ -266,31 +311,6 @@ async def serve_talos_config(mac_address: str):
                 media_type="text/plain",
             )
 
-        # Reset wipe_on_next_boot flag after config is downloaded
-        # (the wipe will happen on next boot when this config is applied)
-        wipe_flag_was_set = False
-        if device.wipe_on_next_boot:
-            wipe_flag_was_set = True
-            device.wipe_on_next_boot = False
-            db.commit()
-            db.refresh(device)  # Refresh to get updated device
-            logger.info(f"Reset wipe_on_next_boot flag for device {mac_address} after config download")
-            
-            # Regenerate boot.ipxe script to reflect the flag change
-            # This ensures the next PXE boot won't have the wipe parameter
-            try:
-                from app.services.ipxe_generator import IPXEGenerator
-                network_settings = network_crud.get_network_settings(db)
-                tftp_root = network_settings.tftp_root if network_settings else "/var/lib/tftpboot"
-                ipxe_generator = IPXEGenerator(tftp_root=tftp_root)
-                all_devices = device_crud.get_devices(db, skip=0, limit=1000)
-                server_ip = ipxe_generator.get_server_ip_from_settings(db)
-                strict_mode = ipxe_generator.get_strict_mode_from_settings(db)
-                ipxe_generator.generate_boot_script(all_devices, server_ip, strict_mode=strict_mode)
-                logger.info(f"Regenerated boot.ipxe after resetting wipe flag for {mac_address}")
-            except Exception as e:
-                logger.warning(f"Failed to regenerate boot.ipxe after wipe flag reset: {e}")
-
         # Generate config on the fly from base template + device settings
         try:
             config_generator = ConfigGenerator()
@@ -299,7 +319,6 @@ async def serve_talos_config(mac_address: str):
                 node_type=device.role.value if device.role else "worker",
                 hostname=device.hostname,
                 ip_address=device.ip_address,
-                wipe_on_next_boot=False,  # Always False here since we just reset it
                 save_to_disk=True,
             )
             return FastResponse(

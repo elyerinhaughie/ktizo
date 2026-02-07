@@ -1,7 +1,12 @@
 from jinja2 import Environment, FileSystemLoader
 from pathlib import Path
 import os
+import shutil
+import subprocess
+import logging
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 class TemplateService:
     """Service for rendering Jinja2 templates (dnsmasq config only)
@@ -71,5 +76,65 @@ class TemplateService:
             ) from e
         
         return rendered, str(output_path)
+
+    def deploy_dnsmasq_config(self) -> bool:
+        """Copy compiled dnsmasq.conf to /etc/dnsmasq.conf and restart the service.
+
+        Returns:
+            True if config was deployed and service restarted successfully.
+        """
+        compiled = self.compiled_path / "dnsmasq" / "dnsmasq.conf"
+        system_conf = Path("/etc/dnsmasq.conf")
+
+        if not compiled.exists():
+            logger.warning(f"Compiled dnsmasq config not found at {compiled}, skipping deploy")
+            return False
+
+        # Only deploy if the compiled config differs from the system config
+        try:
+            if system_conf.exists() and system_conf.read_text() == compiled.read_text():
+                logger.info("System dnsmasq.conf already up to date, skipping deploy")
+                return True
+        except Exception:
+            pass  # If we can't compare, just deploy
+
+        try:
+            shutil.copy2(str(compiled), str(system_conf))
+            logger.info(f"Copied {compiled} -> {system_conf}")
+        except Exception as e:
+            logger.error(f"Failed to copy dnsmasq config to {system_conf}: {e}")
+            return False
+
+        # Restart dnsmasq using OpenRC
+        try:
+            result = subprocess.run(
+                ["rc-service", "dnsmasq", "restart"],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode == 0:
+                logger.info("dnsmasq restarted successfully")
+                return True
+            else:
+                logger.error(f"dnsmasq restart failed: {result.stderr.strip()}")
+                return False
+        except FileNotFoundError:
+            # rc-service not available (dev machine, Docker, etc.) — try systemctl
+            try:
+                result = subprocess.run(
+                    ["systemctl", "restart", "dnsmasq"],
+                    capture_output=True, text=True, timeout=15,
+                )
+                if result.returncode == 0:
+                    logger.info("dnsmasq restarted successfully (systemctl)")
+                    return True
+                else:
+                    logger.error(f"dnsmasq restart failed (systemctl): {result.stderr.strip()}")
+                    return False
+            except FileNotFoundError:
+                logger.warning("Neither rc-service nor systemctl found, cannot restart dnsmasq")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to restart dnsmasq: {e}")
+            return False
 
 template_service = TemplateService()

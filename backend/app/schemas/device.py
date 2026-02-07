@@ -10,6 +10,7 @@ class DeviceBase(BaseModel):
     ip_address: Optional[str] = Field(None, description="IP address to assign to the device")
     role: DeviceRole = Field(default=DeviceRole.WORKER, description="Role in cluster (controlplane or worker)")
     notes: Optional[str] = Field(None, description="Additional notes about the device")
+    wipe_on_next_boot: Optional[bool] = Field(False, description="If True, device will be wiped/reinstalled on next boot")
 
 class DeviceCreate(DeviceBase):
     """Schema for creating a device"""
@@ -23,6 +24,7 @@ class DeviceUpdate(BaseModel):
     role: Optional[DeviceRole] = None
     status: Optional[DeviceStatus] = None
     notes: Optional[str] = None
+    wipe_on_next_boot: Optional[bool] = None
 
 class DeviceResponse(DeviceBase):
     """Schema for device response"""

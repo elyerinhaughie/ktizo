@@ -96,6 +96,8 @@ async def update_network_settings(settings_id: int, settings: NetworkSettingsUpd
         }
         config_text, output_path = template_service.compile_dnsmasq_config(**config_dict)
         print(f"Successfully generated dnsmasq config at {output_path}")
+        if not template_service.deploy_dnsmasq_config():
+            errors.append("Failed to deploy dnsmasq config to system or restart service")
     except PermissionError as e:
         error_msg = f"Permission denied generating dnsmasq config: {str(e)}. Check write permissions for compiled directory."
         print(f"ERROR: {error_msg}")
@@ -208,6 +210,8 @@ async def apply_network_settings(db: Session = Depends(get_db)):
     output_path = None
     try:
         config_text, output_path = template_service.compile_dnsmasq_config(**config_dict)
+        if not template_service.deploy_dnsmasq_config():
+            errors.append("Failed to deploy dnsmasq config to system or restart service")
     except Exception as e:
         errors.append(f"Failed to generate dnsmasq.conf: {str(e)}")
 

@@ -44,6 +44,11 @@ echo Device Approved - Booting Talos
 echo ========================================
 echo MAC: ${mac}
 echo IP: ${node_ip}
+# Check if wipe flag is set for this device
+{% for device in devices %}
+iseq ${mac} {{ device.mac_address }} && {% if device.wipe_on_next_boot %}set wipe_flag 1 && echo WIPE FLAG SET - Device will be wiped on boot{% else %}set wipe_flag 0{% endif %} ||
+{% endfor %}
+isset wipe_flag || set wipe_flag 0
 goto install_talos
 
 :unknown
@@ -82,7 +87,18 @@ echo Kernel: ${kernel_url}
 echo Initrd: ${initrd_url}
 
 echo Loading kernel...
-kernel ${kernel_url} initrd=initramfs-amd64-${version}.xz \
+# If wipe flag is set, notify the server so it resets the flag for next boot
+iseq ${wipe_flag} 1 && echo Notifying server: wipe starting... && imgfetch http://${server}:8000/pxe/wipe-started/${mac} && imgfree ||
+
+# Build kernel command line with conditional wipe parameter
+iseq ${wipe_flag} 1 && kernel ${kernel_url} initrd=initramfs-amd64-${version}.xz \
+ slab_nomerge pti=on \
+ talos.platform=metal \
+ talos.install=true \
+ talos.install.disk=${install_disk} \
+ talos.experimental.wipe=system \
+ talos.config.url=${cfg_url} \
+ talos.config=${cfg_url} || kernel ${kernel_url} initrd=initramfs-amd64-${version}.xz \
  slab_nomerge pti=on \
  talos.platform=metal \
  talos.install=true \

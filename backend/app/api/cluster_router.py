@@ -225,6 +225,16 @@ async def generate_cluster_config(db: Session = Depends(get_db)):
         if settings.install_image:
             cmd.extend(["--install-image", settings.install_image])
 
+        # CNI configuration: if not flannel, disable the built-in CNI
+        # so a custom CNI (cilium, calico) can be deployed separately
+        if settings.cni and settings.cni.lower() != "flannel":
+            import json
+            cni_patch = {"cluster": {"network": {"cni": {"name": "none"}}}}
+            # Also disable kube-proxy for Cilium (it provides its own replacement)
+            if settings.cni.lower() == "cilium":
+                cni_patch["cluster"]["proxy"] = {"disabled": True}
+            cmd.extend(["--config-patch", json.dumps(cni_patch)])
+
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -459,56 +469,20 @@ async def bootstrap_cluster(db: Session = Depends(get_db)):
             logger.warning(f"Could not check node readiness: {e}, continuing with bootstrap anyway")
 
         # Run talosctl bootstrap — use the node's actual IP for both --nodes and --endpoints
-        # Note: During bootstrap, certificate verification may fail because the node
-        # uses temporary certificates that don't match the CA in talosconfig.
-        # Solution: Create a temporary talosconfig without CA verification for bootstrap.
         talosctl = find_talosctl()
-        
-        # Create a temporary talosconfig without CA for bootstrap
-        # This allows bootstrap to proceed even if certificates don't match yet
-        import yaml
-        import tempfile
-        import shutil
-        
-        # Read original talosconfig
-        with open(talosconfig_path, 'r') as f:
-            talosconfig = yaml.safe_load(f)
-        
-        # Create temporary talosconfig without CA certificate
-        # This allows bootstrap to work with temporary node certificates
-        bootstrap_talosconfig = talosconfig.copy()
-        if 'contexts' in bootstrap_talosconfig:
-            for ctx_name in bootstrap_talosconfig['contexts']:
-                ctx = bootstrap_talosconfig['contexts'][ctx_name]
-                # Remove CA to skip certificate verification during bootstrap
-                if 'ca' in ctx:
-                    original_ca = ctx.pop('ca')
-                    logger.info(f"Temporarily removing CA from context {ctx_name} for bootstrap")
-        
-        # Write temporary talosconfig
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp_file:
-            tmp_talosconfig_path = Path(tmp_file.name)
-            yaml.dump(bootstrap_talosconfig, tmp_file, default_flow_style=False)
-        
-        try:
-            # Run bootstrap with temporary talosconfig (no CA verification)
-            logger.info(f"Running bootstrap on node {bootstrap_ip} (using temporary talosconfig without CA)")
-            result = subprocess.run(
-                [
-                    talosctl, "bootstrap",
-                    "--talosconfig", str(tmp_talosconfig_path),
-                    "--nodes", bootstrap_ip,
-                    "--endpoints", bootstrap_ip
-                ],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-        finally:
-            # Clean up temporary talosconfig
-            if tmp_talosconfig_path.exists():
-                tmp_talosconfig_path.unlink()
-                logger.info("Cleaned up temporary talosconfig")
+
+        logger.info(f"Running bootstrap on node {bootstrap_ip}")
+        result = subprocess.run(
+            [
+                talosctl, "bootstrap",
+                "--talosconfig", str(talosconfig_path),
+                "--nodes", bootstrap_ip,
+                "--endpoints", bootstrap_ip
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
 
         if result.returncode != 0:
             raise HTTPException(

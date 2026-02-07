@@ -100,6 +100,15 @@ class ConfigGenerator:
         finally:
             db.close()
 
+    def _get_cni(self) -> Optional[str]:
+        """Get CNI plugin name from cluster settings"""
+        db = SessionLocal()
+        try:
+            settings = cluster_crud.get_cluster_settings(db)
+            return settings.cni if settings else None
+        finally:
+            db.close()
+
     def _get_network_settings(self) -> dict:
         """Get network settings (nameservers, gateway, subnet) from database"""
         from app.crud import network as network_crud
@@ -140,7 +149,8 @@ class ConfigGenerator:
         node_type: str,
         hostname: Optional[str] = None,
         ip_address: Optional[str] = None,
-        save_to_disk: bool = True
+        save_to_disk: bool = True,
+        wipe_on_next_boot: bool = False
     ) -> Tuple[str, Optional[Path]]:
         """
         Generate Talos configuration from raw parameters.
@@ -214,11 +224,33 @@ class ConfigGenerator:
             if nameservers:
                 config['machine']['network']['nameservers'] = nameservers
 
+            # Set wipe/reinstall flag if requested
+            if wipe_on_next_boot:
+                if 'install' not in config['machine']:
+                    config['machine']['install'] = {}
+                config['machine']['install']['force'] = True
+                logger.info(f"Set machine.install.force=true for MAC {mac_address} (wipe on next boot)")
+
             # Update kubelet version to match Kubernetes version
             k8s_version = self._get_kubernetes_version()
             if k8s_version and 'machine' in config and 'kubelet' in config['machine']:
                 config['machine']['kubelet']['image'] = f'ghcr.io/siderolabs/kubelet:{ensure_v_prefix(k8s_version)}'
                 logger.info(f"Set kubelet version to {ensure_v_prefix(k8s_version)} for MAC {mac_address}")
+
+            # Patch CNI settings: disable built-in flannel for custom CNIs
+            cni = self._get_cni()
+            if cni and cni.lower() != "flannel":
+                if 'cluster' not in config:
+                    config['cluster'] = {}
+                if 'network' not in config['cluster']:
+                    config['cluster']['network'] = {}
+                config['cluster']['network']['cni'] = {'name': 'none'}
+                # Disable kube-proxy for Cilium (it provides its own replacement)
+                if cni.lower() == "cilium":
+                    if 'proxy' not in config['cluster']:
+                        config['cluster']['proxy'] = {}
+                    config['cluster']['proxy']['disabled'] = True
+                logger.info(f"Set CNI to none (custom CNI: {cni}) for MAC {mac_address}")
 
             # Generate multi-document YAML with VolumeConfigs
             config_docs = [config]
@@ -325,11 +357,33 @@ class ConfigGenerator:
             if nameservers:
                 config['machine']['network']['nameservers'] = nameservers
 
+            # Set wipe/reinstall flag if requested
+            if device.wipe_on_next_boot:
+                if 'install' not in config['machine']:
+                    config['machine']['install'] = {}
+                config['machine']['install']['force'] = True
+                logger.info(f"Set machine.install.force=true for MAC {device.mac_address} (wipe on next boot)")
+
             # Update kubelet version to match Kubernetes version
             k8s_version = self._get_kubernetes_version()
             if k8s_version and 'machine' in config and 'kubelet' in config['machine']:
                 config['machine']['kubelet']['image'] = f'ghcr.io/siderolabs/kubelet:{ensure_v_prefix(k8s_version)}'
                 logger.info(f"Set kubelet version to {ensure_v_prefix(k8s_version)} for device {device.mac_address}")
+
+            # Patch CNI settings: disable built-in flannel for custom CNIs
+            cni = self._get_cni()
+            if cni and cni.lower() != "flannel":
+                if 'cluster' not in config:
+                    config['cluster'] = {}
+                if 'network' not in config['cluster']:
+                    config['cluster']['network'] = {}
+                config['cluster']['network']['cni'] = {'name': 'none'}
+                # Disable kube-proxy for Cilium (it provides its own replacement)
+                if cni.lower() == "cilium":
+                    if 'proxy' not in config['cluster']:
+                        config['cluster']['proxy'] = {}
+                    config['cluster']['proxy']['disabled'] = True
+                logger.info(f"Set CNI to none (custom CNI: {cni}) for device {device.mac_address}")
 
             # Generate multi-document YAML with VolumeConfigs
             config_docs = [config]

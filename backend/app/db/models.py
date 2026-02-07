@@ -54,6 +54,9 @@ class ClusterSettings(Base):
     # Kubernetes version
     kubernetes_version = Column(String, default="1.28.0")
     kubectl_version = Column(String, default="1.28.0")  # kubectl version to use in terminal
+    
+    # Talos version
+    talos_version = Column(String, default="1.12.2")  # Talos version for talosctl
 
     # Installation configuration
     install_disk = Column(String, default="/dev/sda")
@@ -126,6 +129,7 @@ class Device(Base):
 
     # Additional metadata
     notes = Column(Text, nullable=True)
+    wipe_on_next_boot = Column(Boolean, default=False, nullable=False)
 
     # Timestamps
     first_seen = Column(DateTime(timezone=True), server_default=func.now())
