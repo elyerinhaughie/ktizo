@@ -93,14 +93,14 @@ class IPXEBuilder:
     def _build_makebin_from_source(self) -> bool:
         """
         Build makebin from iPXE source code.
+        Actually, iPXE doesn't have a separate makebin - we build bootloaders directly with EMBED.
         
         Returns:
-            True if makebin was built successfully, False otherwise
+            True if we can build bootloaders, False otherwise
         """
-        if os.getuid() != 0:
-            logger.warning("Cannot build makebin: not running as root")
-            return False
-        
+        # iPXE uses EMBED parameter directly, not makebin
+        # We'll build bootloaders directly in build_custom_bootloader
+        # Just verify we have iPXE source available
         ipxe_dirs = [
             Path("/tmp/ipxe"),
             Path("/usr/src/ipxe"),
@@ -113,64 +113,33 @@ class IPXEBuilder:
             if dir_path.exists() and (dir_path / "src" / "Makefile").exists():
                 ipxe_dir = dir_path
                 logger.info(f"Found existing iPXE source at {ipxe_dir}")
-                break
+                return True
         
         # Clone if not found
-        if ipxe_dir is None:
-            ipxe_dir = Path("/tmp/ipxe")
-            logger.info("Cloning iPXE source code...")
-            try:
-                if ipxe_dir.exists():
-                    shutil.rmtree(ipxe_dir)
-                
-                result = subprocess.run(
-                    ["git", "clone", "--depth", "1", "https://github.com/ipxe/ipxe.git", str(ipxe_dir)],
-                    capture_output=True,
-                    text=True,
-                    timeout=120
-                )
-                
-                if result.returncode != 0:
-                    logger.error(f"Failed to clone iPXE: {result.stderr}")
-                    return False
-            except subprocess.TimeoutExpired:
-                logger.error("Timeout cloning iPXE source")
-                return False
-            except Exception as e:
-                logger.error(f"Error cloning iPXE: {e}")
-                return False
-        
-        # Build makebin
+        ipxe_dir = Path("/tmp/ipxe")
+        logger.info("Cloning iPXE source code...")
         try:
-            logger.info("Building makebin from iPXE source...")
+            if ipxe_dir.exists():
+                shutil.rmtree(ipxe_dir)
+            
             result = subprocess.run(
-                ["make", "-C", str(ipxe_dir / "src"), "bin/makebin"],
+                ["git", "clone", "--depth", "1", "https://github.com/ipxe/ipxe.git", str(ipxe_dir)],
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 minutes for build
+                timeout=120
             )
             
-            if result.returncode == 0:
-                makebin_path = ipxe_dir / "src" / "bin" / "makebin"
-                if makebin_path.exists():
-                    # Copy to a location in PATH
-                    target_path = Path("/usr/local/bin/makebin")
-                    shutil.copy(makebin_path, target_path)
-                    os.chmod(target_path, 0o755)
-                    logger.info(f"Built and installed makebin to {target_path}")
-                    return self._check_makebin()
-                else:
-                    logger.error("makebin build succeeded but file not found")
-                    return False
+            if result.returncode == 0 and (ipxe_dir / "src" / "Makefile").exists():
+                logger.info("iPXE source cloned successfully")
+                return True
             else:
-                logger.error(f"makebin build failed: {result.stderr}")
+                logger.error(f"Failed to clone iPXE: {result.stderr}")
                 return False
-                
         except subprocess.TimeoutExpired:
-            logger.error("Timeout building makebin")
+            logger.error("Timeout cloning iPXE source")
             return False
         except Exception as e:
-            logger.error(f"Error building makebin: {e}")
+            logger.error(f"Error cloning iPXE: {e}")
             return False
     
     def _create_chainboot_script(self, use_http: bool = True) -> str:
