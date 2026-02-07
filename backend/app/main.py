@@ -112,14 +112,7 @@ app.add_middleware(
 # Add CORS header middleware (runs last to ensure headers on all responses)
 app.add_middleware(CORSHeaderMiddleware)
 
-# Include routers
-app.include_router(network_router.router, prefix="/api/v1/network", tags=["network"])
-app.include_router(cluster_router.router, prefix="/api/v1/cluster", tags=["cluster"])
-app.include_router(device_router.router, prefix="/api/v1", tags=["devices"])
-app.include_router(volume_router.router, prefix="/api/v1/volumes", tags=["volumes"])
-# Also include device_router without prefix for /talos/configs route (used by iPXE)
-app.include_router(device_router.router, prefix="", tags=["talos-configs"])
-
+# Define routes before including routers to avoid conflicts
 @app.get("/")
 async def root():
     return {
@@ -132,6 +125,7 @@ async def root():
 async def health():
     return {"status": "healthy"}
 
+# Serve boot.ipxe via HTTP - must be defined before device_router with empty prefix
 @app.get("/pxe/boot.ipxe")
 async def serve_boot_ipxe():
     """Serve boot.ipxe script via HTTP for iPXE auto-execution"""
