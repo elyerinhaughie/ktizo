@@ -87,7 +87,7 @@ async def generate_cluster_config(db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="Cluster settings not found. Please configure cluster first.")
 
         # Output directory for base talos templates
-        base_dir = Path("/templates") / "base"
+        base_dir = get_templates_base_dir()
         base_dir.mkdir(parents=True, exist_ok=True)
 
         # Check if secrets already exist
@@ -95,8 +95,9 @@ async def generate_cluster_config(db: Session = Depends(get_db)):
         has_existing_secrets = secrets_file.exists()
 
         # Run talosctl gen config
+        talosctl = find_talosctl()
         cmd = [
-            "talosctl", "gen", "config",
+            talosctl, "gen", "config",
             settings.cluster_name,
             f"https://{settings.cluster_endpoint}:6443",
             "--output-dir", str(base_dir),
@@ -216,13 +217,14 @@ async def generate_secrets(request: GenerateSecretsRequest, db: Session = Depend
     """Generate only Talos secrets using talosctl (standalone)"""
     try:
         # Output to templates/base
-        base_dir = Path("/templates") / "base"
+        base_dir = get_templates_base_dir()
         base_dir.mkdir(parents=True, exist_ok=True)
         secrets_file = base_dir / "secrets.yaml"
 
         # Run talosctl gen secrets (with --force to overwrite existing)
+        talosctl = find_talosctl()
         result = subprocess.run(
-            ["talosctl", "gen", "secrets", "-o", str(secrets_file), "--force"],
+            [talosctl, "gen", "secrets", "-o", str(secrets_file), "--force"],
             capture_output=True,
             text=True,
             timeout=30
@@ -277,7 +279,7 @@ async def bootstrap_cluster(db: Session = Depends(get_db)):
             )
 
         # Check if talosconfig exists
-        base_dir = Path("/templates") / "base"
+        base_dir = get_templates_base_dir()
         talosconfig_path = base_dir / "talosconfig"
 
         if not talosconfig_path.exists():
@@ -301,9 +303,10 @@ async def bootstrap_cluster(db: Session = Depends(get_db)):
         bootstrap_ip = bootstrap_node.ip_address or settings.cluster_endpoint
 
         # Run talosctl bootstrap with endpoints parameter
+        talosctl = find_talosctl()
         result = subprocess.run(
             [
-                "talosctl", "bootstrap",
+                talosctl, "bootstrap",
                 "--talosconfig", str(talosconfig_path),
                 "--nodes", bootstrap_ip,
                 "--endpoints", settings.cluster_endpoint
@@ -367,9 +370,10 @@ async def download_kubeconfig(db: Session = Depends(get_db)):
 
             # Retrieve kubeconfig from the cluster using talosctl
             # This requires the cluster to be bootstrapped and running
+            talosctl = find_talosctl()
             result = subprocess.run(
                 [
-                    "talosctl", "kubeconfig",
+                    talosctl, "kubeconfig",
                     "--talosconfig", str(talosconfig_path),
                     "--nodes", settings.cluster_endpoint,
                     str(kubeconfig_path)
