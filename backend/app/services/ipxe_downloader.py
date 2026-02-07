@@ -107,5 +107,57 @@ class IPXEDownloader:
     def check_all_bootloaders_exist(self) -> bool:
         """Check if all required bootloader files exist"""
         return all(self.file_exists(local_name) for local_name in self.bootloader_files.values())
+    
+    def sync_to_tftp_root(self, tftp_root: str) -> Tuple[bool, List[str]]:
+        """
+        Sync all iPXE bootloader files to the TFTP root directory.
+        This ensures files are available for dnsmasq to serve.
+        
+        Args:
+            tftp_root: Path to TFTP root directory (e.g., /var/lib/tftpboot)
+            
+        Returns:
+            Tuple of (success: bool, errors: list[str])
+        """
+        errors = []
+        tftp_pxe_dir = Path(tftp_root) / "pxe"
+        
+        try:
+            # Create TFTP PXE directory if it doesn't exist
+            tftp_pxe_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Syncing iPXE files to TFTP root: {tftp_pxe_dir}")
+        except Exception as e:
+            error_msg = f"Failed to create TFTP PXE directory {tftp_pxe_dir}: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return False, errors
+        
+        # Copy each bootloader file to TFTP root
+        for local_name in self.bootloader_files.values():
+            source_file = self.tftp_root / local_name
+            dest_file = tftp_pxe_dir / local_name
+            
+            if not source_file.exists():
+                error_msg = f"Source file not found: {source_file}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+            
+            try:
+                import shutil
+                shutil.copy2(source_file, dest_file)
+                logger.info(f"Synced {local_name} to {dest_file}")
+            except Exception as e:
+                error_msg = f"Failed to copy {local_name} to {dest_file}: {e}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+        
+        success = len(errors) == 0
+        if success:
+            logger.info(f"Successfully synced all iPXE files to TFTP root: {tftp_pxe_dir}")
+        else:
+            logger.warning(f"Synced iPXE files with {len(errors)} errors")
+        
+        return success, errors
 
 ipxe_downloader = IPXEDownloader()

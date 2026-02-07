@@ -33,6 +33,22 @@ async def startup_event():
                 logger.error(f"Failed to download some iPXE bootloaders: {'; '.join(errors)}")
         else:
             logger.info("All iPXE bootloader files already present")
+        
+        # Sync iPXE files to TFTP root (from database settings or default)
+        db = SessionLocal()
+        try:
+            network_settings = network_crud.get_network_settings(db)
+            tftp_root = network_settings.tftp_root if network_settings else "/var/lib/tftpboot"
+            logger.info(f"Syncing iPXE files to TFTP root: {tftp_root}")
+            sync_success, sync_errors = ipxe_downloader.sync_to_tftp_root(tftp_root)
+            if sync_success:
+                logger.info("Successfully synced iPXE files to TFTP root")
+            else:
+                logger.warning(f"Synced iPXE files with some errors: {'; '.join(sync_errors)}")
+        except Exception as e:
+            logger.warning(f"Could not sync iPXE files to TFTP root: {e}")
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"Error checking iPXE bootloader files on startup: {e}")
 
