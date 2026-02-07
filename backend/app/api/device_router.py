@@ -329,7 +329,14 @@ async def download_config(request: ConfigDownloadRequest, db: Session = Depends(
     Returns the appropriate Talos config (controlplane or worker) if the device is approved.
     """
     # Register or get device
-    device = device_crud.register_or_get_device(db, request.mac_address)
+    device, is_new = device_crud.register_or_get_device(db, request.mac_address)
+
+    # Broadcast device_discovered event if this is a new device
+    if is_new:
+        await websocket_manager.broadcast_event({
+            "type": "device_discovered",
+            "mac_address": device.mac_address
+        })
 
     # Check if device is approved
     if device.status != DeviceStatus.APPROVED:
@@ -405,7 +412,14 @@ async def get_device_config(mac_address: str, db: Session = Depends(get_db)):
     If strict mode is disabled and device is not approved, returns a default worker config.
     """
     # Register or get device
-    device = device_crud.register_or_get_device(db, mac_address)
+    device, is_new = device_crud.register_or_get_device(db, mac_address)
+
+    # Broadcast device_discovered event if this is a new device
+    if is_new:
+        await websocket_manager.broadcast_event({
+            "type": "device_discovered",
+            "mac_address": device.mac_address
+        })
 
     # Check if device is approved
     if device.status != DeviceStatus.APPROVED:
@@ -488,13 +502,14 @@ async def register_device(request: ConfigDownloadRequest, db: Session = Depends(
     Endpoint for devices to register themselves.
     This can be called during initial boot to register the device for approval.
     """
-    device = device_crud.register_or_get_device(db, request.mac_address)
+    device, is_new = device_crud.register_or_get_device(db, request.mac_address)
 
-    # Notify WebSocket clients of device event
-    await websocket_manager.broadcast_event({
-        "type": "device_discovered",
-        "mac_address": device.mac_address
-    })
+    # Notify WebSocket clients of device event if this is a new device
+    if is_new:
+        await websocket_manager.broadcast_event({
+            "type": "device_discovered",
+            "mac_address": device.mac_address
+        })
 
     return {
         "mac_address": device.mac_address,

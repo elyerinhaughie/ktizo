@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Device, DeviceStatus
 from app.schemas.device import DeviceCreate, DeviceUpdate
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from app.services.config_generator import ConfigGenerator
 from app.services.ipxe_generator import IPXEGenerator
 import logging
@@ -44,9 +44,15 @@ def create_device(db: Session, device: DeviceCreate) -> Device:
     db.refresh(db_device)
     return db_device
 
-def register_or_get_device(db: Session, mac_address: str) -> Device:
-    """Register device if it doesn't exist, or return existing device"""
+def register_or_get_device(db: Session, mac_address: str) -> Tuple[Device, bool]:
+    """
+    Register device if it doesn't exist, or return existing device.
+    
+    Returns:
+        tuple: (Device, is_new) where is_new is True if device was just created
+    """
     device = get_device_by_mac(db, mac_address)
+    is_new = False
     if not device:
         device = Device(
             mac_address=mac_address,
@@ -55,7 +61,8 @@ def register_or_get_device(db: Session, mac_address: str) -> Device:
         db.add(device)
         db.commit()
         db.refresh(device)
-    return device
+        is_new = True
+    return device, is_new
 
 def update_device(db: Session, device_id: int, device_update: DeviceUpdate) -> Optional[Device]:
     """Update device and regenerate configs if approved"""
