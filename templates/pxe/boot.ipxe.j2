@@ -51,7 +51,11 @@ echo MAC Match Found!
 echo ========================================
 echo Matched IP: ${node_ip}
 echo
-goto boot_menu
+
+# We're already in iPXE (this script only runs in iPXE)
+# Skip menu and boot Talos directly for faster boot
+echo [DEBUG] Device approved - booting Talos directly
+goto run
 
 :unknown
 echo ========================================
