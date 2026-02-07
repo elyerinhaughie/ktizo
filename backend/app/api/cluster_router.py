@@ -355,7 +355,7 @@ async def download_kubeconfig(db: Session = Depends(get_db)):
             )
 
         # Check if talosconfig exists (needed to retrieve kubeconfig)
-        base_dir = Path("/templates") / "base"
+        base_dir = get_templates_base_dir()
         talosconfig_path = base_dir / "talosconfig"
 
         if not talosconfig_path.exists():
