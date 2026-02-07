@@ -22,14 +22,26 @@ class IPXEDownloader:
         
         # Create TFTP PXE directory with proper permissions
         try:
-            tftp_path.mkdir(parents=True, exist_ok=True)
-            # Ensure directory is writable
-            if not os.access(tftp_path, os.W_OK):
-                raise PermissionError(f"Cannot write to TFTP directory: {tftp_path}")
+            # Check if directory exists and is writable
+            if tftp_path.exists():
+                if not os.access(tftp_path, os.W_OK):
+                    raise PermissionError(f"Cannot write to existing TFTP directory: {tftp_path}")
+            else:
+                # Try to create directory
+                try:
+                    tftp_path.mkdir(parents=True, exist_ok=True)
+                except PermissionError:
+                    raise PermissionError(f"Cannot create TFTP directory: {tftp_path}")
+                # Verify we can write to it
+                if not os.access(tftp_path, os.W_OK):
+                    raise PermissionError(f"Cannot write to TFTP directory: {tftp_path}")
+            
             self.tftp_root = tftp_path
-        except PermissionError:
+            logger.info(f"Using TFTP root: {self.tftp_root}")
+        except (PermissionError, OSError) as e:
             # Fallback to compiled directory if we can't write to TFTP root
-            logger.warning(f"Cannot write to TFTP root {tftp_path}, using compiled directory instead")
+            logger.warning(f"Cannot write to TFTP root {tftp_path}: {e}")
+            logger.warning("Falling back to compiled directory - files will need to be manually copied to TFTP root")
             compiled_dir = os.getenv("COMPILED_DIR", settings.COMPILED_DIR)
             fallback_path = Path(compiled_dir) / "pxe"
             if not fallback_path.is_absolute():
