@@ -92,32 +92,29 @@ goto try_drive_0x80
 
 :try_drive_0x80
 echo [DEBUG] Attempt 1/4: Trying drive 0x80 (first hard drive)...
-sanboot --no-describe --drive 0x80 && goto boot_success ||
-echo [DEBUG] Drive 0x80 not bootable
-goto try_drive_0x81
+sanboot --no-describe --drive 0x80 || goto try_drive_0x81
+# If sanboot succeeds, it boots and never returns here
 
 :try_drive_0x81
+echo [DEBUG] Drive 0x80 not bootable
 echo [DEBUG] Attempt 2/4: Trying drive 0x81 (second hard drive)...
-sanboot --no-describe --drive 0x81 && goto boot_success ||
-echo [DEBUG] Drive 0x81 not bootable
-goto try_drive_0x82
+sanboot --no-describe --drive 0x81 || goto try_drive_0x82
+# If sanboot succeeds, it boots and never returns here
 
 :try_drive_0x82
+echo [DEBUG] Drive 0x81 not bootable
 echo [DEBUG] Attempt 3/4: Trying drive 0x82 (third hard drive)...
-sanboot --no-describe --drive 0x82 && goto boot_success ||
-echo [DEBUG] Drive 0x82 not bootable
-goto try_drive_0x83
+sanboot --no-describe --drive 0x82 || goto try_drive_0x83
+# If sanboot succeeds, it boots and never returns here
 
 :try_drive_0x83
+echo [DEBUG] Drive 0x82 not bootable
 echo [DEBUG] Attempt 4/4: Trying drive 0x83 (fourth hard drive)...
-sanboot --no-describe --drive 0x83 && goto boot_success ||
+sanboot --no-describe --drive 0x83 || goto auto_install
+# If sanboot succeeds, it boots and never returns here
 echo [DEBUG] Drive 0x83 not bootable
 echo [DEBUG] All drives attempted, none bootable
 goto auto_install
-
-:boot_success
-echo [DEBUG] Successfully booted from local drive
-exit
 
 # -------------------------------------------------------------------------------
 
