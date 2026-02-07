@@ -15,6 +15,103 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _ensure_kubeconfig() -> bool:
+    """Ensure kubeconfig exists and is up-to-date. Returns True if kubeconfig is available."""
+    from app.db.database import SessionLocal
+    from app.crud import cluster as cluster_crud
+    from app.crud import device as device_crud
+    from app.db.models import DeviceStatus, DeviceRole
+    from pathlib import Path
+    import subprocess
+    import tempfile
+    
+    home = Path.home()
+    kubeconfig_path = home / ".kube" / "config"
+    
+    # Check if kubeconfig exists and is recent (less than 1 hour old)
+    kubeconfig_exists = kubeconfig_path.exists()
+    kubeconfig_recent = False
+    if kubeconfig_exists:
+        import time
+        file_age = time.time() - kubeconfig_path.stat().st_mtime
+        kubeconfig_recent = file_age < 3600  # 1 hour
+    
+    # If kubeconfig doesn't exist or is stale, try to fetch it
+    if not kubeconfig_exists or not kubeconfig_recent:
+        db = SessionLocal()
+        try:
+            cluster_settings = cluster_crud.get_cluster_settings(db)
+            if not cluster_settings:
+                logger.debug("No cluster settings found, skipping kubeconfig fetch")
+                return False
+            
+            # Check if talosconfig exists
+            from app.api.cluster_router import get_templates_base_dir
+            base_dir = get_templates_base_dir()
+            talosconfig_path = base_dir / "talosconfig"
+            
+            if not talosconfig_path.exists():
+                logger.debug("Talosconfig not found, skipping kubeconfig fetch")
+                return False
+            
+            # Get control plane node IP
+            all_devices = device_crud.get_devices_by_status(db, DeviceStatus.APPROVED, skip=0, limit=1000)
+            cp_nodes = [d for d in all_devices if d.role == DeviceRole.CONTROLPLANE and d.ip_address]
+            if not cp_nodes:
+                logger.debug("No control plane nodes found, skipping kubeconfig fetch")
+                return False
+            
+            cp_ip = cp_nodes[0].ip_address
+            if '/' in cp_ip:
+                cp_ip = cp_ip.split('/')[0]
+            
+            # Fetch kubeconfig using talosctl
+            from app.api.cluster_router import find_talosctl
+            try:
+                talosctl = find_talosctl()
+            except FileNotFoundError:
+                logger.debug("talosctl not found, skipping kubeconfig fetch")
+                return False
+            
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_kubeconfig = Path(tmp_dir) / "kubeconfig"
+                result = subprocess.run(
+                    [
+                        talosctl, "kubeconfig",
+                        "--talosconfig", str(talosconfig_path),
+                        "--nodes", cp_ip,
+                        str(tmp_kubeconfig)
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                if result.returncode == 0 and tmp_kubeconfig.exists():
+                    # Save to ~/.kube/config
+                    kubeconfig_dir = home / ".kube"
+                    kubeconfig_dir.mkdir(mode=0o700, exist_ok=True)
+                    
+                    with open(tmp_kubeconfig, 'r') as f:
+                        kubeconfig_content = f.read()
+                    
+                    with open(kubeconfig_path, 'w') as f:
+                        f.write(kubeconfig_content)
+                    os.chmod(kubeconfig_path, 0o600)
+                    logger.info(f"Auto-fetched and saved kubeconfig to {kubeconfig_path}")
+                    return True
+                else:
+                    logger.debug(f"Failed to fetch kubeconfig: {result.stderr}")
+                    return False
+        except Exception as e:
+            logger.warning(f"Error ensuring kubeconfig: {e}")
+            return False
+        finally:
+            db.close()
+    
+    return kubeconfig_exists
+
+
 def _build_env() -> dict:
     """Build environment variables for the terminal shell."""
     from app.db.database import SessionLocal
@@ -55,6 +152,9 @@ def _build_env() -> dict:
     kubeconfig_dir = os.path.join(home, ".kube")
     kubeconfig_path = os.path.join(kubeconfig_dir, "config")
     os.makedirs(kubeconfig_dir, mode=0o700, exist_ok=True)
+    
+    # Try to ensure kubeconfig is available (auto-fetch if needed)
+    _ensure_kubeconfig()
     
     # Set kubeconfig and talosconfig paths
     env["KUBECONFIG"] = kubeconfig_path
