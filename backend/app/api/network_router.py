@@ -94,10 +94,21 @@ async def update_network_settings(settings_id: int, settings: NetworkSettingsUpd
             "pxe_timeout": updated.pxe_timeout,
             "enable_logging": updated.enable_logging,
         }
-        template_service.compile_dnsmasq_config(**config_dict)
+        config_text, output_path = template_service.compile_dnsmasq_config(**config_dict)
+        print(f"Successfully generated dnsmasq config at {output_path}")
+    except PermissionError as e:
+        error_msg = f"Permission denied generating dnsmasq config: {str(e)}. Check write permissions for compiled directory."
+        print(f"ERROR: {error_msg}")
+        errors.append(error_msg)
+    except FileNotFoundError as e:
+        error_msg = f"Template or directory not found: {str(e)}. Check that templates directory exists and is accessible."
+        print(f"ERROR: {error_msg}")
+        errors.append(error_msg)
     except Exception as e:
         error_msg = f"Failed to generate dnsmasq.conf: {str(e)}"
         print(f"ERROR: {error_msg}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
         errors.append(error_msg)
 
     # Regenerate boot.ipxe with all approved devices
@@ -119,18 +130,38 @@ async def update_network_settings(settings_id: int, settings: NetworkSettingsUpd
             install_disk=install_disk
         )
         if not success:
-            error_msg = "Failed to generate boot.ipxe (check template exists)"
+            error_msg = (
+                f"Failed to generate boot.ipxe. "
+                f"Check that template exists at {ipxe_generator.templates_dir}/boot.ipxe.j2 "
+                f"and output directory {ipxe_generator.output_dir} is writable."
+            )
             errors.append(error_msg)
+        else:
+            print(f"Successfully generated boot.ipxe at {ipxe_generator.output_dir}/boot.ipxe")
+    except PermissionError as e:
+        error_msg = f"Permission denied generating boot.ipxe: {str(e)}. Check write permissions for compiled directory."
+        print(f"ERROR: {error_msg}")
+        errors.append(error_msg)
+    except FileNotFoundError as e:
+        error_msg = f"Template or directory not found for boot.ipxe: {str(e)}. Check that templates directory exists."
+        print(f"ERROR: {error_msg}")
+        errors.append(error_msg)
     except Exception as e:
         error_msg = f"Failed to generate boot.ipxe: {str(e)}"
         print(f"ERROR: {error_msg}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
         errors.append(error_msg)
 
     # If there were errors, raise an exception with details
     if errors:
+        error_summary = "Settings saved to database, but the following errors occurred while applying them:\n\n"
+        for i, error in enumerate(errors, 1):
+            error_summary += f"{i}. {error}\n"
+        error_summary += "\nCheck the backend logs for more details."
         raise HTTPException(
             status_code=500,
-            detail=f"Settings saved but failed to apply: {'; '.join(errors)}"
+            detail=error_summary.strip()
         )
 
     print(f"Auto-applied network settings: regenerated dnsmasq.conf and boot.ipxe")
@@ -165,9 +196,21 @@ async def apply_network_settings(db: Session = Depends(get_db)):
     try:
         config_text, output_path = template_service.compile_dnsmasq_config(**config_dict)
         return {
-            "message": "Network settings applied successfully. DNSMASQ will reload automatically.",
+            "message": f"Network settings applied successfully. DNSMASQ config written to {output_path}. DNSMASQ will reload automatically.",
             "config": config_text,
             "path": output_path
         }
+    except PermissionError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Permission denied: Failed to write dnsmasq config. {str(e)}. Check that the compiled directory is writable."
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"File or directory not found: {str(e)}. Check that templates and compiled directories exist."
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to apply settings: {str(e)}")
+        import traceback
+        error_detail = f"Failed to apply settings: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail)

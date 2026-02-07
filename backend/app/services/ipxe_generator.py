@@ -65,28 +65,53 @@ class IPXEGenerator:
                 })
 
             # Load template
-            template = self.env.get_template('boot.ipxe.j2')
+            try:
+                template = self.env.get_template('boot.ipxe.j2')
+            except Exception as e:
+                template_path = self.templates_dir / 'boot.ipxe.j2'
+                raise Exception(
+                    f"Failed to load iPXE template from {template_path}: {str(e)}. "
+                    f"Check that the template file exists and templates directory is accessible."
+                ) from e
 
             # Render template
-            rendered = template.render(
-                server=server_ip,
-                version=talos_version,
-                devices=device_mappings,
-                strict_mode=strict_mode,
-                install_disk=install_disk
-            )
+            try:
+                rendered = template.render(
+                    server=server_ip,
+                    version=talos_version,
+                    devices=device_mappings,
+                    strict_mode=strict_mode,
+                    install_disk=install_disk
+                )
+            except Exception as e:
+                raise Exception(
+                    f"Failed to render iPXE template: {str(e)}. "
+                    f"Check that template variables are correct and template syntax is valid."
+                ) from e
 
             # Write to output
             output_path = self.output_dir / "boot.ipxe"
-            with open(output_path, 'w') as f:
-                f.write(rendered)
+            try:
+                with open(output_path, 'w') as f:
+                    f.write(rendered)
+            except PermissionError as e:
+                raise Exception(
+                    f"Permission denied writing boot.ipxe to {output_path}: {str(e)}. "
+                    f"Check that directory {self.output_dir} is writable."
+                ) from e
+            except OSError as e:
+                raise Exception(
+                    f"Failed to write boot.ipxe to {output_path}: {str(e)}. "
+                    f"Check disk space and directory permissions."
+                ) from e
 
             logger.info(f"Generated boot.ipxe with {len(device_mappings)} approved devices at {output_path}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to generate boot.ipxe: {e}")
-            return False
+            logger.error(f"Failed to generate boot.ipxe: {e}", exc_info=True)
+            # Re-raise with more context
+            raise
 
     def get_server_ip_from_settings(self, db) -> str:
         """

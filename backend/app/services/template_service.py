@@ -42,10 +42,33 @@ class TemplateService:
 
     def compile_dnsmasq_config(self, **kwargs) -> tuple[str, str]:
         """Render and save DNSMASQ configuration to compiled directory"""
-        rendered = self.render_dnsmasq_config(**kwargs)
+        try:
+            rendered = self.render_dnsmasq_config(**kwargs)
+        except Exception as e:
+            template_path = self.env.loader.searchpath[0] if hasattr(self.env.loader, 'searchpath') else "unknown"
+            raise Exception(
+                f"Failed to render dnsmasq template from {template_path}/network/dnsmasq.conf.j2: {str(e)}. "
+                f"Check that the template file exists and is valid Jinja2."
+            ) from e
+        
         output_path = self.compiled_path / "dnsmasq" / "dnsmasq.conf"
-
-        output_path.write_text(rendered)
+        
+        try:
+            # Ensure parent directory exists
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(rendered)
+        except PermissionError as e:
+            raise Exception(
+                f"Permission denied writing to {output_path}. "
+                f"Check that the directory {output_path.parent} is writable. "
+                f"Current user may need write permissions."
+            ) from e
+        except OSError as e:
+            raise Exception(
+                f"Failed to write dnsmasq config to {output_path}: {str(e)}. "
+                f"Check disk space and directory permissions."
+            ) from e
+        
         return rendered, str(output_path)
 
 template_service = TemplateService()
