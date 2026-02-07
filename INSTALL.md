@@ -4,8 +4,10 @@ This guide installs Ktizo to run directly on your host system (no Docker).
 
 ## Quick Start
 
+**Note: This installation requires root privileges.**
+
 ```bash
-./install.sh
+sudo ./install.sh
 ```
 
 The installation script will:
@@ -18,6 +20,8 @@ The installation script will:
 - Set up system services (systemd/launchd)
 
 ## Manual Installation
+
+**Note: Manual installation also requires root privileges. Run all commands as root.**
 
 If you prefer to install manually:
 
@@ -34,24 +38,24 @@ brew install python@3.11 node@20 dnsmasq
 
 **Linux (Debian/Ubuntu):**
 ```bash
-sudo apt-get update
+apt-get update
 # Prefer Python 3.14, fallback to available version
-sudo apt-get install -y python3.14 python3.14-venv python3-pip nodejs npm dnsmasq curl || \
-sudo apt-get install -y python3.13 python3.13-venv python3-pip nodejs npm dnsmasq curl || \
-sudo apt-get install -y python3.12 python3.12-venv python3-pip nodejs npm dnsmasq curl || \
-sudo apt-get install -y python3.11 python3.11-venv python3-pip nodejs npm dnsmasq curl || \
-sudo apt-get install -y python3 python3-venv python3-pip nodejs npm dnsmasq curl
+apt-get install -y python3.14 python3.14-venv python3-pip nodejs npm dnsmasq curl || \
+apt-get install -y python3.13 python3.13-venv python3-pip nodejs npm dnsmasq curl || \
+apt-get install -y python3.12 python3.12-venv python3-pip nodejs npm dnsmasq curl || \
+apt-get install -y python3.11 python3.11-venv python3-pip nodejs npm dnsmasq curl || \
+apt-get install -y python3 python3-venv python3-pip nodejs npm dnsmasq curl
 ```
 
 **Linux (RHEL/CentOS/Fedora):**
 ```bash
-sudo dnf install -y python3 python3-pip nodejs npm dnsmasq curl
+dnf install -y python3 python3-pip nodejs npm dnsmasq curl
 ```
 
 **Linux (Alpine):**
 ```bash
-sudo apk update
-sudo apk add --no-cache python3 py3-pip nodejs npm dnsmasq curl bash
+apk update
+apk add --no-cache python3 py3-pip nodejs npm dnsmasq curl bash
 ```
 
 ### 2. Set Up Python Environment
@@ -102,15 +106,15 @@ mkdir -p logs
 
 **macOS:**
 ```bash
-sudo cp compiled/dnsmasq/dnsmasq.conf /usr/local/etc/dnsmasq.conf
-sudo brew services start dnsmasq
+cp compiled/dnsmasq/dnsmasq.conf /usr/local/etc/dnsmasq.conf
+brew services start dnsmasq
 ```
 
 **Linux:**
 ```bash
-sudo cp compiled/dnsmasq/dnsmasq.conf /etc/dnsmasq.conf
-sudo systemctl enable dnsmasq
-sudo systemctl start dnsmasq
+cp compiled/dnsmasq/dnsmasq.conf /etc/dnsmasq.conf
+systemctl enable dnsmasq
+systemctl start dnsmasq
 ```
 
 ## Running Ktizo
@@ -136,8 +140,8 @@ launchctl start com.ktizo.backend
 
 **Linux (systemd):**
 ```bash
-sudo systemctl start ktizo-backend
-sudo systemctl status ktizo-backend
+systemctl start ktizo-backend
+systemctl status ktizo-backend
 ```
 
 ### Option 3: Manual Start
@@ -183,12 +187,12 @@ python -m app.db.migrate
 
 **macOS:**
 ```bash
-sudo brew services restart dnsmasq
+brew services restart dnsmasq
 ```
 
 **Linux:**
 ```bash
-sudo systemctl restart dnsmasq
+systemctl restart dnsmasq
 ```
 
 ## Directory Structure
@@ -227,7 +231,7 @@ You can set these environment variables:
 ## Troubleshooting
 
 ### Backend won't start
-- Check Python version: `python3 --version` (prefers 3.14, needs 3.11+)
+- Check Python version: `python3 --version` (needs 3.11+)
 - Activate venv: `source venv/bin/activate`
 - Check logs: `logs/backend.log` or `logs/backend.error.log`
 
@@ -237,9 +241,9 @@ You can set these environment variables:
 - Check for port conflicts: `lsof -i :5173`
 
 ### dnsmasq issues
-- Check config: `sudo dnsmasq --test`
+- Check config: `dnsmasq --test`
 - Check logs: `tail -f /var/log/dnsmasq.log` (Linux) or `/usr/local/var/log/dnsmasq.log` (macOS)
-- Verify ports: `sudo lsof -i :67 -i :69`
+- Verify ports: `lsof -i :67 -i :69`
 
 ### Database issues
 - Reinitialize: `cd backend && source ../venv/bin/activate && python -m app.db.migrate`
@@ -256,11 +260,11 @@ sudo brew services stop dnsmasq
 
 **Linux:**
 ```bash
-sudo systemctl stop ktizo-backend
-sudo systemctl disable ktizo-backend
-sudo rm /etc/systemd/system/ktizo-backend.service
-sudo systemctl daemon-reload
-sudo systemctl stop dnsmasq  # If you want to remove dnsmasq too
+systemctl stop ktizo-backend
+systemctl disable ktizo-backend
+rm /etc/systemd/system/ktizo-backend.service
+systemctl daemon-reload
+systemctl stop dnsmasq  # If you want to remove dnsmasq too
 ```
 
 ## Advantages Over Docker

@@ -3,6 +3,13 @@
 
 set -e
 
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo "Error: This script must be run as root"
+    echo "Please run: sudo $0"
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "=========================================="
@@ -38,15 +45,15 @@ fi
 if [[ "$OS" == "linux" ]]; then
     if systemctl is-active --quiet ktizo-backend 2>/dev/null; then
         echo "Stopping systemd service..."
-        sudo systemctl stop ktizo-backend
-        sudo systemctl disable ktizo-backend
+        systemctl stop ktizo-backend
+        systemctl disable ktizo-backend
     fi
     
     SERVICE_FILE="/etc/systemd/system/ktizo-backend.service"
     if [ -f "$SERVICE_FILE" ]; then
         echo "Removing systemd service..."
-        sudo rm "$SERVICE_FILE"
-        sudo systemctl daemon-reload
+        rm "$SERVICE_FILE"
+        systemctl daemon-reload
     fi
 fi
 
@@ -56,9 +63,9 @@ read -p "Stop dnsmasq service? (y/N): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     if [[ "$OS" == "macos" ]]; then
-        sudo brew services stop dnsmasq 2>/dev/null || true
+        brew services stop dnsmasq 2>/dev/null || true
     else
-        sudo systemctl stop dnsmasq 2>/dev/null || true
+        systemctl stop dnsmasq 2>/dev/null || true
     fi
     echo "✅ dnsmasq stopped"
 fi
@@ -70,12 +77,12 @@ echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     if [[ "$OS" == "macos" ]]; then
         if [ -f "/usr/local/etc/dnsmasq.conf" ]; then
-            sudo rm /usr/local/etc/dnsmasq.conf
+            rm /usr/local/etc/dnsmasq.conf
             echo "✅ dnsmasq config removed"
         fi
     else
         if [ -f "/etc/dnsmasq.conf" ]; then
-            sudo rm /etc/dnsmasq.conf
+            rm /etc/dnsmasq.conf
             echo "✅ dnsmasq config removed"
         fi
     fi
