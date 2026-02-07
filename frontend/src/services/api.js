@@ -3,22 +3,32 @@ import axios from 'axios'
 // Determine API base URL
 // Priority: 1. Environment variable, 2. Current hostname with port 8000, 3. localhost fallback
 function getApiBaseUrl() {
+  // Check environment variable first
   if (import.meta.env.VITE_API_URL) {
+    console.log('Using VITE_API_URL:', import.meta.env.VITE_API_URL)
     return import.meta.env.VITE_API_URL
   }
   
   // Use current hostname (works when accessing from remote IP)
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && window.location) {
     const protocol = window.location.protocol
     const hostname = window.location.hostname
-    return `${protocol}//${hostname}:8000`
+    const apiUrl = `${protocol}//${hostname}:8000`
+    console.log('Detected API URL from current hostname:', apiUrl, '(hostname:', hostname, ')')
+    return apiUrl
   }
   
   // Fallback for SSR or when window is not available
+  console.warn('Window not available, using localhost fallback')
   return 'http://localhost:8000'
 }
 
-const API_BASE_URL = getApiBaseUrl()
+// Call at runtime, not module load time
+const API_BASE_URL = (() => {
+  const url = getApiBaseUrl()
+  console.log('API Base URL set to:', url)
+  return url
+})()
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
