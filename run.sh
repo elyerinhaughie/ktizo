@@ -246,9 +246,8 @@ fi
 pkill -f "uvicorn app.main:app" 2>/dev/null || true
 sleep 1
 
-if [ "$BACKEND_RUNNING" = false ]; then
-    
-    cd "$SCRIPT_DIR"
+# Always start backend after killing (to ensure latest code)
+cd "$SCRIPT_DIR"
     # LOGS_DIR already created at top of script
     
     # Set absolute paths for templates (project) and compiled (persistent)
