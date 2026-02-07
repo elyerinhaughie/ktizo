@@ -42,7 +42,7 @@
       </div>
     </aside>
     <main class="main-content">
-      <router-view />
+      <router-view :key="$route.path" />
     </main>
   </div>
 </template>
