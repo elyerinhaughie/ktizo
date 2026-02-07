@@ -117,8 +117,7 @@ goto auto_install
 
 :boot_success
 echo [DEBUG] Successfully booted from local drive
-# Use sanboot to actually boot, then exit if it fails
-sanboot --no-describe --drive 0x80 || exit
+exit
 
 # -------------------------------------------------------------------------------
 
