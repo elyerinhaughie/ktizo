@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from app.api import network_router, cluster_router, device_router, volume_router
 from app.db.database import init_db, SessionLocal
 from app.services.talos_downloader import talos_downloader
