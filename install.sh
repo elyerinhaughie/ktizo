@@ -184,11 +184,11 @@ setup_node() {
     
     cd "$INSTALL_DIR/frontend"
     
-    # Install dependencies
+    # Install dependencies (includes terminal integration: @xterm/xterm, @xterm/addon-fit)
     npm install
     npm install @rollup/rollup-linux-arm64-musl --save-optional --no-save 2>/dev/null || true
     
-    echo "✅ Node.js environment ready"
+    echo "✅ Node.js environment ready (includes terminal integration)"
 }
 
 # Function to download talosctl
@@ -550,8 +550,14 @@ main() {
     echo "   Backend API: http://localhost:8000"
     echo "   API Docs: http://localhost:8000/docs"
     echo ""
-    echo "4. Configure network settings via the web UI"
+    echo "5. Configure network settings via the web UI"
     echo "   Then apply settings to generate dnsmasq config"
+    echo ""
+    echo "6. Features available:"
+    echo "   - Device Management: Add and approve PXE-booting devices"
+    echo "   - Network Configuration: Configure DHCP and PXE boot settings"
+    echo "   - Cluster Management: Generate Talos machine configs"
+    echo "   - Terminal: Web-based terminal access (via /terminal route)"
     echo ""
 }
 
