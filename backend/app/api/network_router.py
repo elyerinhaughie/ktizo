@@ -122,36 +122,31 @@ async def update_network_settings(settings_id: int, settings: NetworkSettingsUpd
         cluster_settings = cluster_crud.get_cluster_settings(db)
         install_disk = cluster_settings.install_disk if cluster_settings else "/dev/sda"
 
-        success = ipxe_generator.generate_boot_script(
-            approved_devices,
-            updated.server_ip,
-            talos_version=updated.talos_version,
-            strict_mode=updated.strict_boot_mode,
-            install_disk=install_disk
-        )
-        if not success:
-            error_msg = (
-                f"Failed to generate boot.ipxe. "
-                f"Check that template exists at {ipxe_generator.templates_dir}/boot.ipxe.j2 "
-                f"and output directory {ipxe_generator.output_dir} is writable."
+        try:
+            success = ipxe_generator.generate_boot_script(
+                approved_devices,
+                updated.server_ip,
+                talos_version=updated.talos_version,
+                strict_mode=updated.strict_boot_mode,
+                install_disk=install_disk
             )
+            if success:
+                print(f"Successfully generated boot.ipxe at {ipxe_generator.output_dir}/boot.ipxe")
+        except PermissionError as e:
+            error_msg = f"Permission denied generating boot.ipxe: {str(e)}. Check write permissions for compiled directory."
+            print(f"ERROR: {error_msg}")
             errors.append(error_msg)
-        else:
-            print(f"Successfully generated boot.ipxe at {ipxe_generator.output_dir}/boot.ipxe")
-    except PermissionError as e:
-        error_msg = f"Permission denied generating boot.ipxe: {str(e)}. Check write permissions for compiled directory."
-        print(f"ERROR: {error_msg}")
-        errors.append(error_msg)
-    except FileNotFoundError as e:
-        error_msg = f"Template or directory not found for boot.ipxe: {str(e)}. Check that templates directory exists."
-        print(f"ERROR: {error_msg}")
-        errors.append(error_msg)
-    except Exception as e:
-        error_msg = f"Failed to generate boot.ipxe: {str(e)}"
-        print(f"ERROR: {error_msg}")
-        import traceback
-        print(f"Traceback: {traceback.format_exc()}")
-        errors.append(error_msg)
+        except FileNotFoundError as e:
+            error_msg = f"Template or directory not found for boot.ipxe: {str(e)}. Check that templates directory exists."
+            print(f"ERROR: {error_msg}")
+            errors.append(error_msg)
+        except Exception as e:
+            # Exception already has detailed message from generate_boot_script
+            error_msg = str(e)
+            print(f"ERROR: {error_msg}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            errors.append(error_msg)
 
     # If there were errors, raise an exception with details
     if errors:
