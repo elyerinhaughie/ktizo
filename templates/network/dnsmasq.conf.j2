@@ -43,21 +43,24 @@ dhcp-match=set:efi64-alt,option:client-arch,9
 dhcp-match=set:efi-arm32,option:client-arch,10
 dhcp-match=set:efi-arm64,option:client-arch,11
 
-# PXE menu prompt settings
-dhcp-option-force=208,f1:00:74:7e:00:00
-pxe-prompt="{{ pxe_prompt | default('Press F8 for boot menu') }}", {{ pxe_timeout | default(3) }}
+# PXE menu prompt settings (only for non-iPXE clients)
+# iPXE clients should auto-chainload, so no prompt needed
+dhcp-option-force=tag:!ipxe,208,f1:00:74:7e:00:00
+pxe-prompt=tag:!ipxe,"{{ pxe_prompt | default('Press F8 for boot menu') }}", {{ pxe_timeout | default(3) }}
 
-# PXE service types
-pxe-service=x86PC,"Boot from network (PXE)",pxe/undionly.kpxe
-pxe-service=x86-64_EFI,"Boot from network (UEFI)",pxe/ipxe.efi
-pxe-service=BC_EFI,"Boot from network (UEFI)",pxe/ipxe.efi
+# PXE service types (only for non-iPXE clients)
+pxe-service=tag:!ipxe,x86PC,"Boot from network (PXE)",pxe/undionly.kpxe
+pxe-service=tag:!ipxe,x86-64_EFI,"Boot from network (UEFI)",pxe/ipxe.efi
+pxe-service=tag:!ipxe,BC_EFI,"Boot from network (UEFI)",pxe/ipxe.efi
 
 # ====================
 # BOOT FILE LOGIC (SIMPLIFIED)
 # ====================
 
 # If client already has iPXE loaded → send boot.ipxe directly
-dhcp-boot=tag:ipxe,{{ ipxe_boot_script | default('talos/boot.ipxe') }}
+# Also set bootfile-name explicitly for iPXE to auto-chainload
+dhcp-boot=tag:ipxe,{{ ipxe_boot_script | default('pxe/boot.ipxe') }}
+dhcp-option=tag:ipxe,67,{{ ipxe_boot_script | default('pxe/boot.ipxe') }}
 
 # If client doesn't have iPXE yet → send architecture-specific iPXE bootloader
 # Legacy BIOS (x86)
