@@ -3,7 +3,8 @@
 # Handles initialization, service startup, and status checks
 # Usage: ./run.sh
 
-set -e
+# Don't exit on error - we want to continue even if some services fail
+set +e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/venv"
@@ -252,15 +253,79 @@ if [ "$DNSMASQ_RUNNING" = true ]; then
     echo -e "${GREEN}✓${NC} dnsmasq is running"
 else
     echo -e "${YELLOW}⚠${NC}  dnsmasq is not running"
-    echo "   To start dnsmasq:"
-    if [ "$OS" = "macos" ]; then
-        echo "     brew services start dnsmasq"
-    elif [ "$USE_SYSTEMD" = true ]; then
-        echo "     systemctl start dnsmasq"
-    elif [ "$USE_OPENRC" = true ]; then
-        echo "     rc-service dnsmasq start"
+    
+    # Check if we're root (required to start dnsmasq)
+    if [ "$EUID" -eq 0 ]; then
+        echo "   Starting dnsmasq..."
+        
+        if [ "$OS" = "macos" ]; then
+            if brew services start dnsmasq 2>&1; then
+                sleep 2
+                if brew services list 2>/dev/null | grep -q "dnsmasq.*started"; then
+                    echo -e "${GREEN}✓${NC} dnsmasq started"
+                else
+                    echo -e "${YELLOW}⚠${NC}  dnsmasq start command succeeded but service may not be running"
+                    echo "   Check: brew services list dnsmasq"
+                fi
+            else
+                echo -e "${RED}✗${NC} Failed to start dnsmasq. Check: brew services list dnsmasq"
+            fi
+        elif [ "$USE_SYSTEMD" = true ]; then
+            systemctl start dnsmasq 2>&1
+            sleep 2
+            if systemctl is-active --quiet dnsmasq 2>/dev/null; then
+                echo -e "${GREEN}✓${NC} dnsmasq started"
+            else
+                echo -e "${RED}✗${NC} dnsmasq failed to start. Check: systemctl status dnsmasq"
+                systemctl status dnsmasq --no-pager -l 2>&1 | head -10
+            fi
+        elif [ "$USE_OPENRC" = true ]; then
+            rc-service dnsmasq start 2>&1
+            sleep 2
+            if rc-service dnsmasq status &>/dev/null; then
+                echo -e "${GREEN}✓${NC} dnsmasq started"
+            else
+                echo -e "${RED}✗${NC} dnsmasq failed to start. Check: rc-service dnsmasq status"
+            fi
+        else
+            # Fallback: try to start dnsmasq directly
+            DNSMASQ_CONF="/etc/dnsmasq.conf"
+            if [ ! -f "$DNSMASQ_CONF" ]; then
+                DNSMASQ_CONF="/usr/local/etc/dnsmasq.conf"
+            fi
+            
+            if [ -f "$DNSMASQ_CONF" ]; then
+                if dnsmasq --test -C "$DNSMASQ_CONF" 2>&1; then
+                    # Start in background
+                    dnsmasq -C "$DNSMASQ_CONF" 2>&1 &
+                    DNSMASQ_PID=$!
+                    sleep 1
+                    if kill -0 "$DNSMASQ_PID" 2>/dev/null; then
+                        echo "$DNSMASQ_PID" > "$SCRIPT_DIR/.dnsmasq.pid"
+                        echo -e "${GREEN}✓${NC} dnsmasq started (PID: $DNSMASQ_PID)"
+                    else
+                        echo -e "${RED}✗${NC} dnsmasq process died immediately. Check config and logs."
+                    fi
+                else
+                    echo -e "${RED}✗${NC} dnsmasq config test failed. Check: dnsmasq --test -C $DNSMASQ_CONF"
+                fi
+            else
+                echo -e "${YELLOW}⚠${NC}  dnsmasq config not found at $DNSMASQ_CONF"
+                echo "   Please configure dnsmasq first via the web UI, then apply settings"
+            fi
+        fi
     else
-        echo "     dnsmasq --no-daemon -C /etc/dnsmasq.conf"
+        echo "   Cannot start dnsmasq (requires root privileges)"
+        echo "   To start dnsmasq manually:"
+        if [ "$OS" = "macos" ]; then
+            echo "     brew services start dnsmasq"
+        elif [ "$USE_SYSTEMD" = true ]; then
+            echo "     systemctl start dnsmasq"
+        elif [ "$USE_OPENRC" = true ]; then
+            echo "     rc-service dnsmasq start"
+        else
+            echo "     dnsmasq --no-daemon -C /etc/dnsmasq.conf"
+        fi
     fi
 fi
 

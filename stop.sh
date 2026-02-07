@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "Stopping Ktizo services..."
 
 # Stop processes from PID files (new format)
-for pidfile in "$SCRIPT_DIR/.backend.pid" "$SCRIPT_DIR/.frontend.pid" "$SCRIPT_DIR/.watcher.pid"; do
+for pidfile in "$SCRIPT_DIR/.backend.pid" "$SCRIPT_DIR/.frontend.pid" "$SCRIPT_DIR/.watcher.pid" "$SCRIPT_DIR/.dnsmasq.pid"; do
     if [ -f "$pidfile" ]; then
         pid=$(cat "$pidfile")
         if kill -0 "$pid" 2>/dev/null; then
