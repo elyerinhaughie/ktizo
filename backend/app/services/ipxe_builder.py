@@ -166,17 +166,23 @@ echo ========================================
 echo Ktizo PXE Chainboot (Embedded)
 echo ========================================
 
-# Critical: Request DHCP first to get network config
-# This is required when chainloaded iPXE starts fresh
-dhcp || {{
-    echo ERROR: Failed to get DHCP lease
+# Prevent infinite loops - use same flag as boot.ipxe
+# Check FIRST before doing anything else
+isset booted_from_ipxe && exit || set booted_from_ipxe 1
+
+# Get network config without triggering DHCP boot filename
+# Use 'dhcp net0' to get IP config, but ignore boot filename
+# Then immediately set our own boot target to prevent DHCP from overriding
+dhcp net0 || {{
+    echo ERROR: Failed to get network config
     sleep 5
     exit
 }}
 
-# Prevent infinite loops - use same flag as boot.ipxe
-# If we've already chainloaded, exit immediately
-isset booted_from_ipxe && exit || set booted_from_ipxe 1
+# CRITICAL: Set boot filename to our fixed URL immediately
+# This prevents dnsmasq from serving a different boot filename
+set next-server {self.server_ip}
+set filename {boot_url}
 
 echo Auto-loading boot script from server...
 echo Server: {self.server_ip}
