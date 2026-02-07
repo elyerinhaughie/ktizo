@@ -103,16 +103,25 @@ export default {
       this.$nextTick(() => {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            // Force container to full width before fitting
+            // Force full viewport width (minus sidebar)
             if (this.$refs.terminalContainer) {
               const container = this.$refs.terminalContainer
-              const parent = container.parentElement
-              if (parent) {
-                const parentWidth = parent.getBoundingClientRect().width
-                container.style.width = `${parentWidth}px`
-                container.style.minWidth = `${parentWidth}px`
-                container.style.maxWidth = `${parentWidth}px`
+              const sidebar = document.querySelector('.sidebar')
+              const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 250
+              const viewportWidth = window.innerWidth
+              const availableWidth = viewportWidth - sidebarWidth
+              
+              // Set terminal page and container to full available width
+              const terminalPage = container.closest('.terminal-page')
+              if (terminalPage) {
+                terminalPage.style.width = `${availableWidth}px`
+                terminalPage.style.minWidth = `${availableWidth}px`
+                terminalPage.style.maxWidth = `${availableWidth}px`
               }
+              
+              container.style.width = `${availableWidth}px`
+              container.style.minWidth = `${availableWidth}px`
+              container.style.maxWidth = `${availableWidth}px`
             }
             this.safeFit()
           })
@@ -175,7 +184,25 @@ export default {
         clearTimeout(this.fitTimeout)
         this.fitTimeout = setTimeout(() => {
           if (!this.isFitting && this.fitAddon && this.$refs.terminalContainer) {
-            const rect = this.$refs.terminalContainer.getBoundingClientRect()
+            // Recalculate width on resize
+            const sidebar = document.querySelector('.sidebar')
+            const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 250
+            const viewportWidth = window.innerWidth
+            const availableWidth = viewportWidth - sidebarWidth
+            
+            const container = this.$refs.terminalContainer
+            const terminalPage = container.closest('.terminal-page')
+            if (terminalPage) {
+              terminalPage.style.width = `${availableWidth}px`
+              terminalPage.style.minWidth = `${availableWidth}px`
+              terminalPage.style.maxWidth = `${availableWidth}px`
+            }
+            
+            container.style.width = `${availableWidth}px`
+            container.style.minWidth = `${availableWidth}px`
+            container.style.maxWidth = `${availableWidth}px`
+            
+            const rect = container.getBoundingClientRect()
             // Only fit if container has reasonable dimensions
             if (rect.width > 100 && rect.height > 100) {
               this.safeFit()
@@ -184,7 +211,32 @@ export default {
         }, 200)
       })
       
-      // Observe the parent container instead of terminal container to avoid feedback loops
+      // Observe window resize
+      const handleResize = () => {
+        if (this.$refs.terminalContainer && !this.isFitting) {
+          const sidebar = document.querySelector('.sidebar')
+          const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 250
+          const viewportWidth = window.innerWidth
+          const availableWidth = viewportWidth - sidebarWidth
+          
+          const container = this.$refs.terminalContainer
+          const terminalPage = container.closest('.terminal-page')
+          if (terminalPage) {
+            terminalPage.style.width = `${availableWidth}px`
+            terminalPage.style.minWidth = `${availableWidth}px`
+            terminalPage.style.maxWidth = `${availableWidth}px`
+          }
+          
+          container.style.width = `${availableWidth}px`
+          container.style.minWidth = `${availableWidth}px`
+          container.style.maxWidth = `${availableWidth}px`
+          
+          this.safeFit()
+        }
+      }
+      
+      window.addEventListener('resize', handleResize)
+      
       const mainContent = document.querySelector('.main-content')
       if (mainContent) {
         this.resizeObserver.observe(mainContent)
@@ -197,18 +249,26 @@ export default {
       
       this.isFitting = true
       const container = this.$refs.terminalContainer
-      const rect = container.getBoundingClientRect()
       
-      // Ensure container has full width
-      const parent = container.parentElement
-      if (parent) {
-        const parentWidth = parent.getBoundingClientRect().width
-        if (parentWidth > 0 && rect.width !== parentWidth) {
-          container.style.width = `${parentWidth}px`
-          container.style.minWidth = `${parentWidth}px`
-          container.style.maxWidth = `${parentWidth}px`
-        }
+      // Calculate full available width (viewport - sidebar)
+      const sidebar = document.querySelector('.sidebar')
+      const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 250
+      const viewportWidth = window.innerWidth
+      const availableWidth = viewportWidth - sidebarWidth
+      
+      // Force full width
+      const terminalPage = container.closest('.terminal-page')
+      if (terminalPage) {
+        terminalPage.style.width = `${availableWidth}px`
+        terminalPage.style.minWidth = `${availableWidth}px`
+        terminalPage.style.maxWidth = `${availableWidth}px`
       }
+      
+      container.style.width = `${availableWidth}px`
+      container.style.minWidth = `${availableWidth}px`
+      container.style.maxWidth = `${availableWidth}px`
+      
+      const rect = container.getBoundingClientRect()
       
       if (rect.width > 100 && rect.height > 100) {
         try {
@@ -236,11 +296,12 @@ export default {
   background: #1a1b26;
   margin: -2rem;
   padding: 0;
-  width: calc(100% + 4rem);
-  min-width: 100%;
-  max-width: 100%;
+  width: calc(100vw - 250px);
+  min-width: calc(100vw - 250px);
+  max-width: calc(100vw - 250px);
   overflow: hidden;
   box-sizing: border-box;
+  position: relative;
 }
 
 .terminal-header {
