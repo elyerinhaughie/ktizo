@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isActive" class="terminal-page">
+  <div v-if="isActive" class="terminal-page" :class="{ hidden: !isActive }">
     <div class="terminal-header">
       <span class="terminal-title">Terminal</span>
       <span :class="['status-dot', connectionStatus]"></span>
@@ -261,10 +261,12 @@ export default {
       }
     },
     cleanup() {
-      // Hide terminal immediately
+      // Hide terminal immediately - set flag first
       this.isActive = false
       
-      // Clean up all resources when leaving the terminal page
+      // Force DOM update
+      this.$nextTick(() => {
+        // Clean up all resources when leaving the terminal page
       if (this.fitTimeout) {
         clearTimeout(this.fitTimeout)
         this.fitTimeout = null
@@ -298,6 +300,16 @@ export default {
           container.innerHTML = ''
         }
       }
+      
+      // Force hide the terminal page element if it still exists
+      const terminalPage = document.querySelector('.terminal-page')
+      if (terminalPage) {
+        terminalPage.style.display = 'none'
+        terminalPage.style.visibility = 'hidden'
+        terminalPage.style.opacity = '0'
+        terminalPage.style.pointerEvents = 'none'
+      }
+      })
     },
     safeFit() {
       if (this.isFitting || !this.fitAddon || !this.$refs.terminalContainer) {
@@ -362,9 +374,19 @@ export default {
   z-index: 1;
 }
 
-.terminal-page:not(.active) {
+/* Ensure terminal is completely hidden when not active */
+.terminal-page.hidden,
+.terminal-page[style*="display: none"] {
   display: none !important;
   visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  left: -9999px !important;
+  top: -9999px !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
 }
 
 .terminal-header {
