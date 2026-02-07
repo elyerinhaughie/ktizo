@@ -1,5 +1,5 @@
 <template>
-  <div class="terminal-page">
+  <div v-if="isActive" class="terminal-page">
     <div class="terminal-header">
       <span class="terminal-title">Terminal</span>
       <span :class="['status-dot', connectionStatus]"></span>
@@ -53,6 +53,9 @@ export default {
     })
   },
   beforeUnmount() {
+    // Hide terminal immediately
+    this.isActive = false
+    
     // Clean up all resources when leaving the terminal page
     if (this.fitTimeout) {
       clearTimeout(this.fitTimeout)
@@ -78,6 +81,14 @@ export default {
     if (this.handleResize) {
       window.removeEventListener('resize', this.handleResize)
       this.handleResize = null
+    }
+    
+    // Force cleanup of terminal container
+    if (this.$refs.terminalContainer) {
+      const container = this.$refs.terminalContainer
+      if (container.parentElement) {
+        container.innerHTML = ''
+      }
     }
   },
   methods: {
@@ -318,6 +329,11 @@ export default {
   box-sizing: border-box;
   position: relative;
   z-index: 1;
+}
+
+.terminal-page:not(.active) {
+  display: none !important;
+  visibility: hidden !important;
 }
 
 .terminal-header {
