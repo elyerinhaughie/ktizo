@@ -368,6 +368,74 @@ download_kubectl() {
     fi
 }
 
+# Function to download helm
+download_helm() {
+    echo ""
+    echo "Downloading helm..."
+
+    cd "$INSTALL_DIR/backend"
+
+    # Detect architecture
+    ARCH=$(uname -m)
+    if [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "aarch64" ]]; then
+        HELM_ARCH="arm64"
+    elif [[ "$ARCH" == "x86_64" ]]; then
+        HELM_ARCH="amd64"
+    else
+        HELM_ARCH="amd64"  # Default fallback
+    fi
+
+    # Get latest helm version
+    HELM_VERSION=$(curl -sL https://api.github.com/repos/helm/helm/releases/latest | sed -n 's/.*"tag_name": "\([^"]*\)".*/\1/p' | head -1)
+    if [ -z "$HELM_VERSION" ]; then
+        HELM_VERSION="v3.17.1"
+        echo "Warning: Could not determine latest helm version, using $HELM_VERSION"
+    else
+        echo "Using helm version: $HELM_VERSION"
+    fi
+
+    # Download helm
+    if [[ "$OS" == "macos" ]]; then
+        HELM_OS="darwin"
+    else
+        HELM_OS="linux"
+    fi
+
+    HELM_URL="https://get.helm.sh/helm-${HELM_VERSION}-${HELM_OS}-${HELM_ARCH}.tar.gz"
+    HELM_TMP="/tmp/helm-${HELM_VERSION}.tar.gz"
+
+    echo "Downloading helm from: $HELM_URL"
+
+    if curl -L "$HELM_URL" -o "$HELM_TMP"; then
+        # Extract helm binary from tarball
+        HELM_EXTRACT_DIR="/tmp/helm-extract-$$"
+        mkdir -p "$HELM_EXTRACT_DIR"
+        tar -xzf "$HELM_TMP" -C "$HELM_EXTRACT_DIR"
+
+        HELM_BIN="$HELM_EXTRACT_DIR/${HELM_OS}-${HELM_ARCH}/helm"
+
+        if [ -f "$HELM_BIN" ] && [ -x "$HELM_BIN" ]; then
+            if "$HELM_BIN" version --short >/dev/null 2>&1; then
+                cp "$HELM_BIN" "$INSTALL_DIR/backend/helm"
+                chmod +x "$INSTALL_DIR/backend/helm"
+                echo "✅ helm installed successfully ($HELM_VERSION)"
+                echo "   Location: $INSTALL_DIR/backend/helm"
+            else
+                echo "⚠️  Warning: helm downloaded but version check failed"
+            fi
+        else
+            echo "❌ Error: Could not find helm binary in archive"
+        fi
+
+        # Clean up
+        rm -rf "$HELM_EXTRACT_DIR" "$HELM_TMP"
+    else
+        echo "❌ Error: Failed to download helm from $HELM_URL"
+        echo "   Please check your internet connection and try again"
+        exit 1
+    fi
+}
+
 # Function to create directories
 create_directories() {
     echo ""
@@ -683,6 +751,7 @@ main() {
     setup_node
     download_talosctl
     download_kubectl
+    download_helm
     setup_dnsmasq
     create_startup_scripts
     
