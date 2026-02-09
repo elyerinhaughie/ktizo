@@ -420,11 +420,13 @@ export default {
         { id: 'monitoring', label: 'Monitoring', description: 'Metrics, dashboards, and alerting.' },
         { id: 'security', label: 'Security', description: 'Certificate management and security tools.' },
         { id: 'gitops', label: 'GitOps', description: 'Continuous delivery and deployment automation.' },
+        { id: 'ci-cd', label: 'CI/CD', description: 'Continuous integration runners and build infrastructure.' },
       ],
 
       // Application module categories
       appCategories: [
         { id: 'databases', label: 'Databases', description: 'Relational and NoSQL databases for application data.' },
+        { id: 'ci-cd', label: 'CI/CD', description: 'Self-hosted CI/CD runners and build agents.' },
       ],
 
       // Wizard modal
