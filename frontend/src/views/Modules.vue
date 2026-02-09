@@ -33,7 +33,12 @@
               <a :href="'#cat-' + cat.id" @click.prevent="scrollTo('cat-' + cat.id)" class="text-gray-500 no-underline text-[0.9rem] block py-1 transition-colors duration-200 hover:text-[#42b983]">{{ cat.label }}</a>
             </li>
             <li class="mb-1 mt-3 pt-3 border-t border-gray-200">
-              <a href="#deployed" @click.prevent="scrollTo('deployed')" class="text-gray-500 no-underline text-[0.9rem] block py-1 transition-colors duration-200 hover:text-[#42b983]">Deployed Releases</a>
+              <a href="#deployed" @click.prevent="scrollTo('deployed')" class="text-gray-500 no-underline text-[0.9rem] block py-1 transition-colors duration-200 hover:text-[#42b983] font-medium">Deployed Releases</a>
+              <ul v-if="Object.keys(releasesByNamespace).length" class="list-none p-0 m-0 ml-3">
+                <li v-for="ns in Object.keys(releasesByNamespace)" :key="ns" class="mb-0.5">
+                  <a :href="'#ns-' + ns" @click.prevent="scrollTo('ns-' + ns)" class="text-gray-400 no-underline text-xs block py-0.5 transition-colors duration-200 hover:text-[#42b983]">{{ ns }}</a>
+                </li>
+              </ul>
             </li>
           </ul>
         </nav>
@@ -77,11 +82,11 @@
                           Install
                         </button>
                       </template>
-                      <template v-else-if="getClusterRelease(mod.id).status === 'deploying' || getClusterRelease(mod.id).status === 'uninstalling'">
+                      <template v-else-if="['deploying', 'uninstalling', 'failed'].includes(getClusterRelease(mod.id).status)">
                         <button @click="openLogViewer(getClusterRelease(mod.id))" class="bg-gray-500 text-white py-1.5 px-3 border-none rounded text-sm cursor-pointer transition-colors hover:bg-gray-600" title="View Log">
                           <font-awesome-icon :icon="['fas', 'terminal']" />
                         </button>
-                        <span class="text-gray-400 text-sm italic">{{ getClusterRelease(mod.id).status === 'deploying' ? 'Deploying...' : 'Uninstalling...' }}</span>
+                        <span v-if="getClusterRelease(mod.id).status !== 'failed'" class="text-gray-400 text-sm italic">{{ getClusterRelease(mod.id).status === 'deploying' ? 'Deploying...' : 'Uninstalling...' }}</span>
                         <button @click="forceDelete(getClusterRelease(mod.id))" class="text-red-500 hover:text-red-700 bg-transparent border-none cursor-pointer text-xs ml-2" title="Force delete">Force Remove</button>
                       </template>
                       <template v-else>
@@ -131,83 +136,61 @@
                       </button>
                     </div>
                   </div>
-
-                  <!-- Deployed instances of this application -->
-                  <div v-if="getAppReleases(mod.id).length" class="mt-3 border-t border-gray-100 pt-3">
-                    <div class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Deployed Instances</div>
-                    <div class="space-y-2">
-                      <div v-for="rel in getAppReleases(mod.id)" :key="rel.id" class="flex items-center justify-between p-2.5 rounded bg-gray-50 border border-gray-100">
-                        <div class="flex items-center gap-3 min-w-0">
-                          <span class="font-medium text-sm text-sidebar-dark truncate">{{ rel.release_name }}</span>
-                          <code class="bg-gray-200 px-1.5 py-0.5 rounded text-xs text-gray-600 shrink-0">{{ rel.namespace }}</code>
-                          <span :class="statusBadgeClass(rel.status)" class="px-2 py-0.5 rounded-full text-xs font-medium shrink-0">{{ rel.status }}</span>
-                        </div>
-                        <div class="flex items-center gap-2 shrink-0">
-                          <template v-if="rel.status === 'deploying' || rel.status === 'uninstalling'">
-                            <button @click="openLogViewer(rel)" class="text-gray-500 hover:text-gray-700 bg-transparent border-none cursor-pointer text-sm" title="View Log">
-                              <font-awesome-icon :icon="['fas', 'terminal']" />
-                            </button>
-                            <button @click="forceDelete(rel)" class="text-red-500 hover:text-red-700 bg-transparent border-none cursor-pointer text-xs" title="Force delete">Force</button>
-                          </template>
-                          <template v-else>
-                            <button v-if="rel.log_output" @click="openLogViewer(rel)" class="text-gray-500 hover:text-gray-700 bg-transparent border-none cursor-pointer text-sm" title="View Log">
-                              <font-awesome-icon :icon="['fas', 'terminal']" />
-                            </button>
-                            <button @click="openWizardForRelease(mod, rel)" class="text-blue-500 hover:text-blue-700 bg-transparent border-none cursor-pointer text-sm" title="Upgrade">
-                              <font-awesome-icon :icon="['fas', 'arrow-up']" />
-                            </button>
-                            <button @click="confirmUninstall(rel)" class="text-red-500 hover:text-red-700 bg-transparent border-none cursor-pointer text-sm" title="Uninstall">
-                              <font-awesome-icon :icon="['fas', 'trash']" />
-                            </button>
-                          </template>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           <!-- Deployed Releases -->
-          <div id="deployed" class="bg-white p-8 rounded-lg shadow-md scroll-mt-24">
+          <div id="deployed" class="scroll-mt-24">
             <h3 class="text-sidebar-dark mb-1 text-xl">Deployed Releases</h3>
-            <p class="text-gray-500 text-sm mb-4">{{ activeTab === 'cluster' ? 'Cluster-scoped Helm releases' : 'Application-scoped Helm releases' }}</p>
+            <p class="text-gray-500 text-sm mb-4">{{ activeTab === 'cluster' ? 'Cluster-scoped' : 'Application-scoped' }} Helm releases</p>
 
-            <div v-if="!filteredReleases.length" class="text-gray-400 text-center py-8">
-              No {{ activeTab }} modules deployed yet. Install one from the catalog above{{ activeTab === 'applications' ? ' or deploy a custom chart' : '' }}.
+            <div v-if="!filteredReleases.length" class="bg-white p-8 rounded-lg shadow-md text-gray-400 text-center">
+              No cluster modules deployed yet. Install one from the catalog above.
             </div>
-            <div v-else class="overflow-x-auto">
-              <table class="w-full border-collapse">
-                <thead>
-                  <tr class="border-b-2 border-gray-200">
-                    <th class="text-left py-3 px-3 text-sidebar-dark text-sm font-semibold">Release</th>
-                    <th class="text-left py-3 px-3 text-sidebar-dark text-sm font-semibold">Chart</th>
-                    <th class="text-left py-3 px-3 text-sidebar-dark text-sm font-semibold">Namespace</th>
-                    <th class="text-left py-3 px-3 text-sidebar-dark text-sm font-semibold">Status</th>
-                    <th class="text-right py-3 px-3 text-sidebar-dark text-sm font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="rel in filteredReleases" :key="rel.id" class="border-b border-gray-100 hover:bg-gray-50">
-                    <td class="py-3 px-3 font-medium text-sm">{{ rel.release_name }}</td>
-                    <td class="py-3 px-3 text-sm text-gray-600">{{ rel.chart_name }}</td>
-                    <td class="py-3 px-3 text-sm"><code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs">{{ rel.namespace }}</code></td>
-                    <td class="py-3 px-3">
-                      <span :class="statusBadgeClass(rel.status)" class="px-2 py-0.5 rounded-full text-xs font-medium">{{ rel.status }}</span>
-                    </td>
-                    <td class="py-3 px-3 text-right flex gap-2 justify-end">
-                      <button v-if="rel.status === 'deploying' || rel.status === 'uninstalling' || rel.log_output" @click="openLogViewer(rel)" class="text-gray-500 hover:text-gray-700 bg-transparent border-none cursor-pointer text-sm" title="View Log">
-                        <font-awesome-icon :icon="['fas', 'terminal']" />
-                      </button>
-                      <button v-if="rel.status === 'deploying' || rel.status === 'uninstalling'" @click="forceDelete(rel)" class="text-red-500 hover:text-red-700 bg-transparent border-none cursor-pointer text-xs" title="Force delete">Force Remove</button>
-                      <button v-if="rel.status === 'deployed' || rel.status === 'failed'" @click="confirmUninstall(rel)" class="text-red-500 hover:text-red-700 bg-transparent border-none cursor-pointer text-sm" title="Uninstall">
-                        <font-awesome-icon :icon="['fas', 'trash']" />
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <div v-else>
+              <div v-for="(nsReleases, ns, nsIdx) in releasesByNamespace" :key="ns" :id="'ns-' + ns" class="bg-white rounded-lg shadow-md scroll-mt-24 overflow-hidden" :class="nsIdx < Object.keys(releasesByNamespace).length - 1 ? 'mb-4' : ''">
+                <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-2">
+                  <font-awesome-icon :icon="['fas', 'layer-group']" class="text-gray-400 text-xs" />
+                  <code class="bg-gray-700 text-white px-2 py-0.5 rounded text-sm font-semibold">{{ ns }}</code>
+                  <span class="text-gray-400 text-xs">{{ nsReleases.length }} release{{ nsReleases.length !== 1 ? 's' : '' }}</span>
+                </div>
+                <div class="px-6 py-4">
+                  <table class="w-full border-collapse">
+                    <thead>
+                      <tr class="border-b-2 border-gray-200">
+                        <th class="text-left py-2.5 px-3 text-sidebar-dark text-sm font-semibold">Release</th>
+                        <th class="text-left py-2.5 px-3 text-sidebar-dark text-sm font-semibold">Chart</th>
+                        <th class="text-left py-2.5 px-3 text-sidebar-dark text-sm font-semibold">Status</th>
+                        <th class="text-right py-2.5 px-3 text-sidebar-dark text-sm font-semibold">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="rel in nsReleases" :key="rel.id" class="border-b border-gray-100 hover:bg-gray-50">
+                        <td class="py-3 px-3 font-medium text-sm">{{ rel.release_name }}</td>
+                        <td class="py-3 px-3 text-sm text-gray-600">{{ rel.chart_name }}</td>
+                        <td class="py-3 px-3">
+                          <span :class="statusBadgeClass(rel.status)" class="px-2 py-0.5 rounded-full text-xs font-medium">{{ rel.status }}</span>
+                          <div v-if="rel.status === 'failed' && rel.status_message" class="text-red-500 text-xs mt-1 max-w-xs truncate" :title="rel.status_message">{{ rel.status_message }}</div>
+                        </td>
+                        <td class="py-3 px-3 text-right flex gap-2 justify-end">
+                          <button v-if="rel.status === 'deploying' || rel.status === 'uninstalling' || rel.log_output" @click="openLogViewer(rel)" class="text-gray-500 hover:text-gray-700 bg-transparent border-none cursor-pointer text-sm" title="View Log">
+                            <font-awesome-icon :icon="['fas', 'terminal']" />
+                          </button>
+                          <button v-if="['deploying', 'uninstalling', 'failed'].includes(rel.status)" @click="forceDelete(rel)" class="text-red-500 hover:text-red-700 bg-transparent border-none cursor-pointer text-xs" title="Force delete">Force Remove</button>
+                          <button v-if="rel.status === 'deployed' && getCatalogEntry(rel)" @click="openUpgradeForRelease(rel)" class="text-blue-500 hover:text-blue-700 bg-transparent border-none cursor-pointer text-sm" title="Edit Values">
+                            <font-awesome-icon :icon="['fas', 'pen']" />
+                          </button>
+                          <button v-if="rel.status === 'deployed'" @click="confirmUninstall(rel)" class="text-red-500 hover:text-red-700 bg-transparent border-none cursor-pointer text-sm" title="Uninstall">
+                            <font-awesome-icon :icon="['fas', 'trash']" />
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         </template>
@@ -215,7 +198,7 @@
     </div>
 
     <!-- Wizard Modal -->
-    <div v-if="showWizard" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" @click.self="showWizard = false">
+    <div v-if="showWizard" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
       <div class="bg-white p-8 rounded-lg max-w-[600px] w-[90%] max-h-[90vh] overflow-y-auto shadow-xl">
         <h3 class="text-sidebar-dark text-xl mt-0 mb-2">{{ wizardUpgrade ? 'Upgrade' : 'Deploy' }} {{ wizardModule.name }}</h3>
         <p class="text-gray-500 text-sm mb-6">{{ wizardModule.description }}</p>
@@ -314,7 +297,7 @@
     </div>
 
     <!-- Generic Chart Modal -->
-    <div v-if="showGeneric" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" @click.self="showGeneric = false">
+    <div v-if="showGeneric" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
       <div class="bg-white p-8 rounded-lg max-w-[600px] w-[90%] max-h-[90vh] overflow-y-auto shadow-xl">
         <h3 class="text-sidebar-dark text-xl mt-0 mb-6">Deploy Custom Helm Chart</h3>
         <form @submit.prevent="deployGeneric">
@@ -363,7 +346,7 @@
     </div>
 
     <!-- Uninstall Confirmation Modal -->
-    <div v-if="showUninstallConfirm" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" @click.self="showUninstallConfirm = false">
+    <div v-if="showUninstallConfirm" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
       <div class="bg-white p-8 rounded-lg max-w-[450px] w-[90%] shadow-xl">
         <h3 class="text-sidebar-dark text-xl mt-0 mb-2">Uninstall {{ uninstallTarget?.release_name }}?</h3>
         <p class="text-gray-500 text-sm mb-6">
@@ -373,6 +356,30 @@
           <button @click="showUninstallConfirm = false" class="py-2.5 px-6 border border-gray-300 rounded text-sm cursor-pointer bg-white hover:bg-gray-50">Cancel</button>
           <button @click="doUninstall" :disabled="deploying" class="bg-red-600 text-white py-2.5 px-6 border-none rounded text-sm font-medium cursor-pointer transition-colors hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
             {{ deploying ? 'Uninstalling...' : 'Uninstall' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import Existing Release Modal -->
+    <div v-if="showImportConfirm" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+      <div class="bg-white p-8 rounded-lg max-w-[500px] w-[90%] shadow-xl">
+        <h3 class="text-sidebar-dark text-xl mt-0 mb-2">Release Already Exists in Cluster</h3>
+        <p class="text-gray-500 text-sm mb-4">
+          <code class="bg-gray-100 text-pink-600 px-1 rounded text-xs">{{ importTarget?.release_name }}</code> is already deployed in namespace
+          <code class="bg-gray-100 text-pink-600 px-1 rounded text-xs">{{ importTarget?.namespace }}</code> but is not tracked by Ktizo.
+        </p>
+        <div class="bg-gray-50 rounded p-4 mb-6 text-sm space-y-1">
+          <div><span class="text-gray-500">Chart:</span> <span class="font-medium text-gray-700">{{ importTarget?.chart }}</span></div>
+          <div><span class="text-gray-500">Status:</span> <span class="font-medium text-gray-700">{{ importTarget?.status }}</span></div>
+          <div><span class="text-gray-500">Revision:</span> <span class="font-medium text-gray-700">{{ importTarget?.revision }}</span></div>
+          <div v-if="importTarget?.app_version"><span class="text-gray-500">App Version:</span> <span class="font-medium text-gray-700">{{ importTarget?.app_version }}</span></div>
+        </div>
+        <p class="text-gray-600 text-sm mb-6">Would you like to import this release so Ktizo can manage it?</p>
+        <div class="flex justify-end gap-3">
+          <button @click="showImportConfirm = false" class="py-2.5 px-6 border border-gray-300 rounded text-sm cursor-pointer bg-white hover:bg-gray-50">Cancel</button>
+          <button @click="doImport" :disabled="deploying" class="bg-[#42b983] text-white py-2.5 px-6 border-none rounded text-sm font-medium cursor-pointer transition-colors hover:bg-[#35a372] disabled:bg-gray-300 disabled:cursor-not-allowed">
+            {{ deploying ? 'Importing...' : 'Import Release' }}
           </button>
         </div>
       </div>
@@ -419,8 +426,7 @@ export default {
         { id: 'networking', label: 'Networking', description: 'Load balancers, ingress controllers, and network tools.' },
         { id: 'monitoring', label: 'Monitoring', description: 'Metrics, dashboards, and alerting.' },
         { id: 'security', label: 'Security', description: 'Certificate management and security tools.' },
-        { id: 'gitops', label: 'GitOps', description: 'Continuous delivery and deployment automation.' },
-        { id: 'ci-cd', label: 'CI/CD', description: 'Continuous integration runners and build infrastructure.' },
+        { id: 'ci-cd', label: 'CI/CD & GitOps', description: 'Continuous integration, delivery, and GitOps automation.' },
       ],
 
       // Application module categories
@@ -446,6 +452,11 @@ export default {
       showUninstallConfirm: false,
       uninstallTarget: null,
 
+      // Import existing release
+      showImportConfirm: false,
+      importTarget: null,
+      importParams: null,
+
       // Log viewer
       showLogViewer: false,
       logViewerTitle: '',
@@ -470,11 +481,26 @@ export default {
         return scope === 'application' || (!scope && rel.catalog_id)
       })
     },
+    releasesByNamespace() {
+      const grouped = {}
+      for (const rel of this.filteredReleases) {
+        const ns = rel.namespace || 'default'
+        if (!grouped[ns]) grouped[ns] = []
+        grouped[ns].push(rel)
+      }
+      // Sort namespaces alphabetically
+      const sorted = {}
+      for (const ns of Object.keys(grouped).sort()) {
+        sorted[ns] = grouped[ns]
+      }
+      return sorted
+    },
     catalogByCategory() {
       const grouped = {}
-      const allCats = [...this.clusterCategories, ...this.appCategories]
-      for (const cat of allCats) {
-        grouped[cat.id] = this.catalog.filter(m => m.category === cat.id)
+      const scope = this.activeTab === 'cluster' ? 'cluster' : 'application'
+      const cats = this.activeTab === 'cluster' ? this.clusterCategories : this.appCategories
+      for (const cat of cats) {
+        grouped[cat.id] = this.catalog.filter(m => m.category === cat.id && m.scope === scope)
       }
       return grouped
     },
@@ -535,6 +561,16 @@ export default {
       const entry = this.catalog.find(m => m.id === rel.catalog_id)
       return entry?.scope || null
     },
+    getCatalogEntry(rel) {
+      if (!rel.catalog_id) return null
+      return this.catalog.find(m => m.id === rel.catalog_id) || null
+    },
+    openUpgradeForRelease(rel) {
+      const mod = this.getCatalogEntry(rel)
+      if (mod) {
+        this.openWizardForRelease(mod, rel)
+      }
+    },
     statusBadgeClass(status) {
       switch (status) {
         case 'deployed': return 'bg-green-100 text-green-700'
@@ -569,12 +605,27 @@ export default {
             release_name: existing.release_name,
             namespace: existing.namespace,
             chart_version: existing.chart_version || '',
-            raw_values: existing.values_yaml || '',
+            raw_values: '',
           }
+          let parsed = null
           try {
-            this.wizardValues = existing.values_json ? JSON.parse(existing.values_json) : {}
+            parsed = existing.values_json ? JSON.parse(existing.values_json) : null
           } catch {
+            parsed = null
+          }
+          if (parsed && Object.keys(parsed).length > 0) {
+            this.wizardValues = parsed
+          } else {
             this.wizardValues = {}
+            for (const field of (mod.wizard_fields || [])) {
+              if (field.default !== undefined && field.default !== null) {
+                this.wizardValues[field.key] = field.default
+              }
+            }
+            if (existing.values_yaml) {
+              this.wizardForm.raw_values = existing.values_yaml
+              this.showRawValues = true
+            }
           }
         }
       } else {
@@ -595,7 +646,7 @@ export default {
       this.showWizard = true
     },
     openWizardForRelease(mod, rel) {
-      // Upgrade a specific application release
+      // Upgrade a specific release — populate wizard from values_json or fall back to defaults
       this.wizardModule = mod
       this.wizardUpgrade = true
       this.wizardUpgradeRelease = rel
@@ -604,12 +655,28 @@ export default {
         release_name: rel.release_name,
         namespace: rel.namespace,
         chart_version: rel.chart_version || '',
-        raw_values: rel.values_yaml || '',
+        raw_values: '',
       }
+      let parsed = null
       try {
-        this.wizardValues = rel.values_json ? JSON.parse(rel.values_json) : {}
+        parsed = rel.values_json ? JSON.parse(rel.values_json) : null
       } catch {
+        parsed = null
+      }
+      if (parsed && Object.keys(parsed).length > 0) {
+        this.wizardValues = parsed
+      } else {
+        // No values_json — initialize from wizard field defaults and show raw YAML
         this.wizardValues = {}
+        for (const field of (mod.wizard_fields || [])) {
+          if (field.default !== undefined && field.default !== null) {
+            this.wizardValues[field.key] = field.default
+          }
+        }
+        if (rel.values_yaml) {
+          this.wizardForm.raw_values = rel.values_yaml
+          this.showRawValues = true
+        }
       }
       this.showWizard = true
     },
@@ -697,7 +764,7 @@ export default {
           })
           this.toast.info(`Upgrading ${this.wizardForm.release_name}...`)
         } else {
-          await apiService.installModule({
+          const installParams = {
             release_name: this.wizardForm.release_name,
             namespace: this.wizardForm.namespace,
             chart_name: this.wizardModule.chart_name,
@@ -707,13 +774,40 @@ export default {
             catalog_id: this.wizardModule.id,
             values_yaml: valuesYaml,
             values_json: valuesJson,
-          })
+          }
+          const result = await apiService.installModule(installParams)
+
+          // Release exists in cluster but not tracked — offer to import
+          if (result?.conflict === 'exists_in_cluster') {
+            this.importTarget = result
+            this.importParams = installParams
+            this.showWizard = false
+            this.showImportConfirm = true
+            return
+          }
+
           this.toast.info(`Deploying ${this.wizardForm.release_name}...`)
         }
         this.showWizard = false
         await this.loadReleases()
       } catch (error) {
         this.toast.error(error.message || 'Deployment failed')
+      } finally {
+        this.deploying = false
+      }
+    },
+    async doImport() {
+      if (!this.importParams) return
+      this.deploying = true
+      try {
+        await apiService.importModule(this.importParams)
+        this.toast.success(`Imported ${this.importTarget.release_name} into Ktizo`)
+        this.showImportConfirm = false
+        this.importTarget = null
+        this.importParams = null
+        await this.loadReleases()
+      } catch (error) {
+        this.toast.error(error.message || 'Import failed')
       } finally {
         this.deploying = false
       }
@@ -725,7 +819,7 @@ export default {
     async deployGeneric() {
       this.deploying = true
       try {
-        await apiService.installModule({
+        const installParams = {
           release_name: this.genericForm.release_name,
           namespace: this.genericForm.namespace,
           chart_name: this.genericForm.chart_name,
@@ -733,7 +827,17 @@ export default {
           repo_name: this.genericForm.repo_name,
           repo_url: this.genericForm.repo_url,
           values_yaml: this.genericForm.values_yaml || null,
-        })
+        }
+        const result = await apiService.installModule(installParams)
+
+        if (result?.conflict === 'exists_in_cluster') {
+          this.importTarget = result
+          this.importParams = installParams
+          this.showGeneric = false
+          this.showImportConfirm = true
+          return
+        }
+
         this.toast.info(`Installing ${this.genericForm.release_name}...`)
         this.showGeneric = false
         await this.loadReleases()

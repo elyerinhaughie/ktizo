@@ -144,6 +144,15 @@ from app.api.handlers.troubleshoot import (   # noqa: F401
     _troubleshoot_reinstall_cni,
 )
 
+from app.api.handlers.cicd import (           # noqa: F401
+    CICD_ACTIONS,
+    _cicd_overview,
+    _cicd_runners,
+    _cicd_listeners,
+    start_cicd_broadcaster,
+    stop_cicd_broadcaster,
+)
+
 from app.api.handlers.devices import (        # noqa: F401
     DEVICE_ACTIONS,
     _devices_list,
@@ -178,6 +187,7 @@ ACTION_MAP.update(TALOS_ACTIONS)
 ACTION_MAP.update(MODULE_ACTIONS)
 ACTION_MAP.update(LONGHORN_ACTIONS)
 ACTION_MAP.update(TROUBLESHOOT_ACTIONS)
+ACTION_MAP.update(CICD_ACTIONS)
 
 
 async def handle_ws_message(ws: WebSocket, raw: str):

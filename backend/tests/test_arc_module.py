@@ -86,10 +86,10 @@ class TestArcControllerCatalogEntry:
         assert entry["default_namespace"] == "arc-systems"
         assert entry["default_release_name"] == "arc"
 
-    def test_arc_controller_no_privileged_namespace(self):
-        """ARC controller does not require privileged namespace."""
+    def test_arc_controller_privileged_namespace(self):
+        """ARC controller requires privileged namespace for listener pods."""
         entry = get_catalog_entry("arc-controller")
-        assert entry.get("privileged_namespace") is not True
+        assert entry.get("privileged_namespace") is True
 
 
 # ===========================================================================
@@ -178,10 +178,10 @@ class TestArcRunnerSetCatalogEntry:
             "Application-scoped: user provides release name (becomes runs-on label)"
         )
 
-    def test_arc_runner_set_no_privileged_namespace(self):
-        """Runner set does not require privileged namespace by default."""
+    def test_arc_runner_set_privileged_namespace(self):
+        """Runner set requires privileged namespace (DinD needs it)."""
         entry = get_catalog_entry("arc-runner-set")
-        assert entry.get("privileged_namespace") is not True
+        assert entry.get("privileged_namespace") is True
 
 
 # ===========================================================================
@@ -205,6 +205,8 @@ class TestArcRunnerSetWizardFields:
             "minRunners",
             "containerMode.type",
             "runnerGroup",
+            "containerMode.kubernetesModeWorkVolumeClaim.storageClassName",
+            "containerMode.kubernetesModeWorkVolumeClaim.resources.requests.storage",
         }
         actual_keys = set(runner_fields.keys())
         missing = expected_keys - actual_keys
@@ -220,11 +222,17 @@ class TestArcRunnerSetWizardFields:
         assert field["section"] == "GitHub"
 
     def test_arc_runner_set_github_token(self, runner_fields):
-        """GitHub token field exists for PAT auth."""
+        """GitHub token field warns about classic PAT requirement."""
         field = runner_fields["githubConfigSecret.github_token"]
         assert field["type"] == "text"
         assert field["default"] == ""
         assert field["section"] == "GitHub"
+        # Must warn users that fine-grained PATs don't work for org-level
+        desc = field["description"].lower()
+        assert "classic" in desc, "Description must mention classic PAT"
+        assert "fine-grained" in desc or "github_pat" in desc, (
+            "Description must warn about fine-grained PAT limitation"
+        )
 
     def test_arc_runner_set_scaling_fields(self, runner_fields):
         """Scaling fields have sensible defaults."""
@@ -233,12 +241,71 @@ class TestArcRunnerSetWizardFields:
         assert runner_fields["minRunners"]["type"] == "number"
         assert runner_fields["minRunners"]["default"] == 0
 
+    def test_arc_runner_set_runner_group_default_empty(self, runner_fields):
+        """Runner group defaults to empty string for broad compatibility.
+
+        An explicit 'default' value only works on GitHub Team/Enterprise plans.
+        Empty string lets ARC auto-detect the org's default runner group, which
+        works on all plan tiers including free.
+        """
+        field = runner_fields["runnerGroup"]
+        assert field["type"] == "text"
+        assert field["default"] == "", (
+            "runnerGroup must default to empty string — explicit 'default' "
+            "fails on GitHub Free orgs"
+        )
+
     def test_arc_runner_set_container_mode(self, runner_fields):
         """Container mode has valid options."""
         field = runner_fields["containerMode.type"]
         assert field["type"] == "select"
         assert "dind" in field["options"]
         assert "kubernetes" in field["options"]
+
+    def test_arc_runner_set_volume_claim_show_when(self, runner_fields):
+        """Volume claim fields only shown when containerMode.type is kubernetes.
+
+        Without these fields, kubernetes mode fails with:
+            spec.template.spec.volumes[0].ephemeral.volumeClaimTemplate.spec: Required value
+
+        Regression test for: ARC runner set kubernetes mode install failure.
+        """
+        sc_field = runner_fields["containerMode.kubernetesModeWorkVolumeClaim.storageClassName"]
+        assert sc_field.get("show_when") == {"key": "containerMode.type", "value": "kubernetes"}, (
+            "storageClassName must be conditional on kubernetes mode"
+        )
+
+        storage_field = runner_fields["containerMode.kubernetesModeWorkVolumeClaim.resources.requests.storage"]
+        assert storage_field.get("show_when") == {"key": "containerMode.type", "value": "kubernetes"}, (
+            "storage size must be conditional on kubernetes mode"
+        )
+
+    def test_arc_runner_set_volume_claim_defaults(self, runner_fields):
+        """Volume claim fields have sensible defaults."""
+        sc_field = runner_fields["containerMode.kubernetesModeWorkVolumeClaim.storageClassName"]
+        assert sc_field["type"] == "text"
+        assert sc_field["default"] == "longhorn"
+
+        storage_field = runner_fields["containerMode.kubernetesModeWorkVolumeClaim.resources.requests.storage"]
+        assert storage_field["type"] == "text"
+        assert storage_field["default"] == "1Gi"
+
+    def test_arc_runner_set_default_values_access_modes(self):
+        """default_values must include accessModes for kubernetesModeWorkVolumeClaim.
+
+        The PVC spec requires accessModes: ["ReadWriteOnce"]. This is not user-configurable
+        and must be injected automatically via default_values.
+        """
+        entry = get_catalog_entry("arc-runner-set")
+        dv = entry.get("default_values", {})
+        access_modes = (
+            dv.get("containerMode", {})
+              .get("kubernetesModeWorkVolumeClaim", {})
+              .get("accessModes")
+        )
+        assert access_modes == ["ReadWriteOnce"], (
+            f"default_values must include accessModes: ['ReadWriteOnce'], got: {access_modes}"
+        )
 
     def test_arc_runner_set_sections(self, runner_fields):
         """Fields span expected sections."""
@@ -388,11 +455,11 @@ async def test_arc_runner_set_custom_namespace(
 
 
 @pytest.mark.asyncio
-async def test_arc_runner_set_no_privileged_namespace(
+async def test_arc_runner_set_privileged_namespace(
     mock_db, mock_broadcast, mock_log_action,
     mock_helm_runner, mock_post_install, mock_label_ns,
 ):
-    """Runner set does not require privileged namespace labeling."""
+    """Runner set requires privileged namespace labeling (DinD needs it)."""
     from app.api.ws_handler import _do_helm_install
 
     release = seed_helm_release(mock_db, status="pending", catalog_id="arc-runner-set",
@@ -402,4 +469,4 @@ async def test_arc_runner_set_no_privileged_namespace(
     with patch("app.services.helm_runner.helm_runner", mock_helm_runner):
         await _do_helm_install(release.id, params)
 
-    mock_label_ns.assert_not_awaited()
+    mock_label_ns.assert_awaited_once()

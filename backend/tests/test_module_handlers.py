@@ -135,8 +135,8 @@ async def test_modules_install_creates_release(mock_db, mock_ws, mock_broadcast,
 
 @pytest.mark.asyncio
 async def test_modules_install_duplicate_error(mock_db, mock_ws, mock_broadcast, mock_log_action):
-    """_modules_install returns error when release name already exists."""
-    seed_helm_release(mock_db, release_name="dup-release")
+    """_modules_install returns error when deployed release name already exists."""
+    seed_helm_release(mock_db, release_name="dup-release", status="deployed")
 
     params = {
         "release_name": "dup-release",
@@ -149,7 +149,7 @@ async def test_modules_install_duplicate_error(mock_db, mock_ws, mock_broadcast,
 
     data, error = get_ws_response(mock_ws)
     assert error is not None
-    assert "already exists" in error
+    assert "already deployed and tracked" in error
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +235,7 @@ async def test_modules_cancel_not_found(mock_db, mock_ws, mock_broadcast):
 async def test_modules_force_delete_success(
     mock_db, mock_ws, mock_broadcast, mock_helm_runner, mock_log_action,
 ):
-    """_modules_force_delete removes DB record and attempts helm uninstall."""
+    """_modules_force_delete removes DB record using quick force_uninstall (not full uninstall)."""
     release = seed_helm_release(
         mock_db,
         release_name="force-del",
@@ -244,19 +244,16 @@ async def test_modules_force_delete_success(
     )
 
     with patch("app.api.ws_handler.helm_runner", mock_helm_runner, create=True), \
-         patch("app.services.helm_runner.helm_runner", mock_helm_runner), \
-         patch("app.api.ws_handler._find_kubectl", return_value="/usr/local/bin/kubectl"), \
-         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_sub, \
-         patch("app.api.ws_handler._delete_namespace_resources", new_callable=AsyncMock):
-        mock_sub.return_value = AsyncMock(
-            returncode=0,
-            communicate=AsyncMock(return_value=(b"{}", b"")),
-        )
+         patch("app.services.helm_runner.helm_runner", mock_helm_runner):
         await _modules_force_delete({"release_id": release.id}, mock_ws, "req-12")
 
     data, error = get_ws_response(mock_ws)
     assert error is None
     assert "Force-deleted" in data["message"]
+
+    # Verify force_uninstall was called (not the slow uninstall)
+    mock_helm_runner.force_uninstall.assert_awaited_once()
+    mock_helm_runner.uninstall.assert_not_awaited()
 
     # Verify DB record was removed
     from app.db.models import HelmRelease

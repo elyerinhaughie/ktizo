@@ -51,6 +51,10 @@
           <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'hard-drive']" /></span>
           <span class="text-[0.95rem]">Longhorn</span>
         </router-link>
+        <router-link v-if="arcInstalled" to="/cicd" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'code-branch']" /></span>
+          <span class="text-[0.95rem]">CI/CD Runners</span>
+        </router-link>
 
         <!-- Ktizo -->
         <div class="mt-4 mb-1 px-4 text-[0.7rem] font-semibold uppercase tracking-wider text-white/40">Ktizo</div>
@@ -108,6 +112,7 @@ export default {
     return {
       wsConnected: true,
       longhornInstalled: false,
+      arcInstalled: false,
     }
   },
   mounted() {
@@ -136,6 +141,9 @@ export default {
         const modules = await apiService.getModules()
         this.longhornInstalled = (modules || []).some(
           m => m.chart_name?.includes('longhorn') && m.status !== 'uninstalling'
+        )
+        this.arcInstalled = (modules || []).some(
+          m => m.chart_name?.includes('gha-runner-scale-set-controller') && m.status !== 'uninstalling'
         )
       } catch {
         // Silently ignore — WS may not be ready yet

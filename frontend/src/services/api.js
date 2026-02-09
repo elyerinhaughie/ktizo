@@ -100,6 +100,7 @@ export default {
   getModules: () => ws.request('modules.list'),
   getModule: (id) => ws.request('modules.get', { release_id: id }),
   installModule: (params) => ws.request('modules.install', params),
+  importModule: (params) => ws.request('modules.import', params),
   upgradeModule: (id, params) => ws.request('modules.upgrade', { release_id: id, ...params }),
   cancelModule: (id) => ws.request('modules.cancel', { release_id: id }),
   forceDeleteModule: (id) => ws.request('modules.force_delete', { release_id: id }),
@@ -116,6 +117,12 @@ export default {
   longhornRemoveDisk: (params) => ws.request('longhorn.remove_disk', params),
   longhornUseAllDisks: (nodeName) => ws.request('longhorn.use_all_disks', { node_name: nodeName }),
   longhornAutoConfig: (params) => ws.request('longhorn.auto_config', params),
+
+  // --- CI/CD Runners ---
+  cicdFull: () => ws.request('cicd.full'),
+  cicdOverview: () => ws.request('cicd.overview'),
+  cicdRunners: (scaleSetName) => ws.request('cicd.runners', scaleSetName ? { scale_set_name: scaleSetName } : {}),
+  cicdListeners: () => ws.request('cicd.listeners'),
 
   // --- Audit ---
   getAuditLogs: (params) => ws.request('audit.list', params || {}),

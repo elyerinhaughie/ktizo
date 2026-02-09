@@ -60,10 +60,31 @@ async def _modules_install(params: dict, ws: WebSocket, req_id: str):
         from app.crud import helm as crud
         from app.schemas.helm import HelmReleaseCreate
 
-        # Check for duplicate
+        from app.services.helm_runner import helm_runner
+        namespace = params.get("namespace", "default")
+
+        # Check for duplicate in our DB
         existing = crud.get_helm_release_by_name(db, params["release_name"])
         if existing:
-            return await _ws._respond(ws, req_id, error=f"Release '{params['release_name']}' already exists")
+            # If it's already deployed and tracked, don't allow re-install
+            if existing.status == "deployed":
+                return await _ws._respond(ws, req_id, error=f"Release '{params['release_name']}' is already deployed and tracked")
+            # Stale/failed entry — clean it up so we can re-install or import
+            crud.delete_helm_release(db, existing.id)
+
+        # Check if release already exists in the cluster (installed outside Ktizo)
+        helm_status = await helm_runner.get_status(params["release_name"], namespace)
+        if helm_status:
+            info = helm_status.get("info", {})
+            return await _ws._respond(ws, req_id, {
+                "conflict": "exists_in_cluster",
+                "release_name": params["release_name"],
+                "namespace": namespace,
+                "chart": helm_status.get("chart", ""),
+                "status": info.get("status", "unknown"),
+                "revision": helm_status.get("version", 0),
+                "app_version": info.get("app_version", ""),
+            })
 
         release = crud.create_helm_release(db, HelmReleaseCreate(**params))
         await _ws._respond(ws, req_id, release)
@@ -433,7 +454,7 @@ async def _modules_cancel(params: dict, ws: WebSocket, req_id: str):
 
 
 async def _modules_force_delete(params: dict, ws: WebSocket, req_id: str):
-    """Force-delete a release from the DB. Also attempts helm uninstall and namespace cleanup."""
+    """Force-delete a release: quick helm uninstall attempt, then remove DB record immediately."""
     db = _ws._db()
     try:
         from app.crud import helm as crud
@@ -446,18 +467,11 @@ async def _modules_force_delete(params: dict, ws: WebSocket, req_id: str):
         release_name = release.release_name
         namespace = release.namespace
 
-        # Best-effort helm uninstall
+        # Best-effort quick helm uninstall (15s timeout, no --wait, no hooks)
         try:
-            await helm_runner.uninstall(release_name, namespace)
+            await helm_runner.force_uninstall(release_name, namespace)
         except Exception:
             pass
-
-        # Best-effort namespace resource cleanup
-        if namespace and namespace != "default" and namespace != "kube-system":
-            try:
-                await _ws._delete_namespace_resources(namespace)
-            except Exception:
-                pass
 
         # Clean up disk partition config if applicable
         if release.catalog_id and release.values_json:
@@ -675,6 +689,61 @@ async def _modules_repos_delete(params: dict, ws: WebSocket, req_id: str):
         db.close()
 
 
+async def _modules_import(params: dict, ws: WebSocket, req_id: str):
+    """Import an existing cluster release into Ktizo's tracking DB."""
+    from datetime import datetime, timezone
+    db = _ws._db()
+    try:
+        from app.crud import helm as crud
+        from app.db.models import HelmRelease
+
+        release_name = params.get("release_name")
+        namespace = params.get("namespace", "default")
+        if not release_name:
+            return await _ws._respond(ws, req_id, error="release_name is required")
+
+        # Already tracked?
+        existing = crud.get_helm_release_by_name(db, release_name)
+        if existing:
+            return await _ws._respond(ws, req_id, error=f"Release '{release_name}' is already tracked")
+
+        # Verify it actually exists in the cluster
+        helm_status = await helm_runner.get_status(release_name, namespace)
+        if not helm_status:
+            return await _ws._respond(ws, req_id, error=f"Release '{release_name}' not found in namespace '{namespace}'")
+
+        info = helm_status.get("info", {})
+
+        db_release = HelmRelease(
+            release_name=release_name,
+            namespace=namespace,
+            chart_name=params.get("chart_name", helm_status.get("chart", "")),
+            chart_version=params.get("chart_version"),
+            catalog_id=params.get("catalog_id"),
+            repo_name=params.get("repo_name"),
+            repo_url=params.get("repo_url"),
+            values_yaml=params.get("values_yaml"),
+            values_json=params.get("values_json"),
+            status="deployed" if info.get("status") == "deployed" else info.get("status", "deployed"),
+            status_message="Imported from existing cluster release",
+            revision=helm_status.get("version"),
+            app_version=info.get("app_version"),
+            deployed_at=datetime.now(timezone.utc),
+        )
+        db.add(db_release)
+        db.commit()
+        db.refresh(db_release)
+
+        await _ws._respond(ws, req_id, db_release)
+        await _ws._broadcast("module_status_changed", {
+            "id": db_release.id,
+            "release_name": db_release.release_name,
+            "status": db_release.status,
+        })
+    finally:
+        db.close()
+
+
 # ---------------------------------------------------------------------------
 # Export action mapping
 # ---------------------------------------------------------------------------
@@ -684,6 +753,7 @@ MODULE_ACTIONS = {
     "modules.list": _modules_list,
     "modules.get": _modules_get,
     "modules.install": _modules_install,
+    "modules.import": _modules_import,
     "modules.upgrade": _modules_upgrade,
     "modules.cancel": _modules_cancel,
     "modules.force_delete": _modules_force_delete,

@@ -301,13 +301,13 @@ MODULE_CATALOG = [
         "notes": "After installation, create a ClusterIssuer resource for Let's Encrypt or your CA. Then annotate Ingress resources with cert-manager.io/cluster-issuer to get automatic TLS certificates.",
     },
 
-    # ── GitOps ───────────────────────────────────────────────────────────
+    # ── CI/CD & GitOps ──────────────────────────────────────────────────
     {
         "id": "argocd",
         "name": "Argo CD",
         "scope": "cluster",
         "description": "Declarative GitOps continuous delivery for Kubernetes. Automatically syncs your cluster state to match Git repositories. Provides a web UI for visualizing deployments, diffs, and rollbacks.",
-        "category": "gitops",
+        "category": "ci-cd",
         "icon": "code-branch",
         "repo_name": "argo",
         "repo_url": "https://argoproj.github.io/argo-helm",
@@ -729,6 +729,7 @@ MODULE_CATALOG = [
             },
         ],
         "default_values": {},
+        "privileged_namespace": True,
         "notes": "Install this controller first, then deploy one or more 'GitHub Actions Runner Set' instances. The controller watches all namespaces by default. Verify: kubectl get pods -n arc-systems",
     },
     {
@@ -755,8 +756,8 @@ MODULE_CATALOG = [
             },
             {
                 "key": "githubConfigSecret.github_token",
-                "label": "GitHub PAT",
-                "description": "Personal Access Token with repo and admin:org scopes. For production, use a GitHub App instead (configure via values YAML).",
+                "label": "GitHub PAT (Classic)",
+                "description": "Classic Personal Access Token (ghp_...). Org-level: requires admin:org scope. Repo-level: requires repo scope. Fine-grained PATs (github_pat_) are NOT supported for org-level runners.",
                 "type": "text",
                 "default": "",
                 "placeholder": "ghp_...",
@@ -790,13 +791,38 @@ MODULE_CATALOG = [
             {
                 "key": "runnerGroup",
                 "label": "Runner Group",
-                "description": "GitHub runner group to register with. Use 'default' unless you have custom runner groups configured.",
+                "description": "GitHub runner group name. Leave empty for the organization default. Custom groups require GitHub Team or Enterprise plan.",
                 "type": "text",
-                "default": "default",
+                "default": "",
                 "section": "Runner",
             },
+            {
+                "key": "containerMode.kubernetesModeWorkVolumeClaim.storageClassName",
+                "label": "Work Volume Storage Class",
+                "description": "StorageClass for ephemeral work volumes. Must support ReadWriteOnce access.",
+                "type": "text",
+                "default": "longhorn",
+                "section": "Runner",
+                "show_when": {"key": "containerMode.type", "value": "kubernetes"},
+            },
+            {
+                "key": "containerMode.kubernetesModeWorkVolumeClaim.resources.requests.storage",
+                "label": "Work Volume Size",
+                "description": "Size of ephemeral work volume for each runner pod.",
+                "type": "text",
+                "default": "1Gi",
+                "section": "Runner",
+                "show_when": {"key": "containerMode.type", "value": "kubernetes"},
+            },
         ],
-        "default_values": {},
+        "default_values": {
+            "containerMode": {
+                "kubernetesModeWorkVolumeClaim": {
+                    "accessModes": ["ReadWriteOnce"],
+                },
+            },
+        },
+        "privileged_namespace": True,
         "notes": "The release name (e.g., 'arc-runner-set') becomes the 'runs-on:' label in GitHub Actions workflows. Example: runs-on: arc-runner-set. Verify runners: kubectl get pods -n <namespace>. Requires ARC controller installed in arc-systems namespace.",
     },
 ]

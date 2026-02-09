@@ -55,7 +55,6 @@ class IPXEDownloader:
         self.bootloader_files = {
             "undionly.kpxe": "undionly.kpxe",        # Legacy BIOS
             "ipxe.efi": "ipxe.efi",                  # Generic UEFI (covers all arches)
-            "snponly.efi": "snponly.efi",            # SNP-only
             "ipxe.pxe": "ipxe.pxe",                  # Fallback
         }
 

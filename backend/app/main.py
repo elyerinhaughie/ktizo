@@ -120,6 +120,10 @@ async def startup_event():
     from app.services.health_checker import health_check_loop
     asyncio.create_task(health_check_loop())
 
+    # Start CI/CD broadcast loop (pushes ARC status to all connected clients)
+    from app.api.handlers.cicd import start_cicd_broadcaster
+    start_cicd_broadcaster()
+
     # Check and download kubectl if needed
     try:
         db = SessionLocal()
