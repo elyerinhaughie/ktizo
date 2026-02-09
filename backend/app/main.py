@@ -124,6 +124,10 @@ async def startup_event():
     from app.api.handlers.cicd import start_cicd_broadcaster
     start_cicd_broadcaster()
 
+    # Start metrics broadcast loop (pushes node CPU/memory to all connected clients)
+    from app.api.handlers.metrics import start_metrics_broadcaster
+    start_metrics_broadcaster()
+
     # Check and download kubectl if needed
     try:
         db = SessionLocal()

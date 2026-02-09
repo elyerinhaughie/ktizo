@@ -100,161 +100,152 @@
       </p>
     </div>
 
-    <div v-else class="bg-white rounded-lg shadow-md overflow-x-auto">
-      <table class="w-full border-collapse">
-        <thead class="bg-gray-50">
-          <tr>
-            <th @click="sortBy('mac_address')" class="p-4 text-left font-semibold text-sidebar-dark border-b-2 border-gray-200 cursor-pointer select-none transition-colors duration-200 hover:bg-gray-200">
-              MAC Address
-              <span class="ml-2 text-[0.7rem] text-indigo-600" v-if="sortColumn === 'mac_address'">
-                <font-awesome-icon :icon="['fas', sortDirection === 'asc' ? 'sort-up' : 'sort-down']" />
-              </span>
-            </th>
-            <th @click="sortBy('hostname')" class="p-4 text-left font-semibold text-sidebar-dark border-b-2 border-gray-200 cursor-pointer select-none transition-colors duration-200 hover:bg-gray-200">
-              Hostname
-              <span class="ml-2 text-[0.7rem] text-indigo-600" v-if="sortColumn === 'hostname'">
-                <font-awesome-icon :icon="['fas', sortDirection === 'asc' ? 'sort-up' : 'sort-down']" />
-              </span>
-            </th>
-            <th @click="sortBy('ip_address')" class="p-4 text-left font-semibold text-sidebar-dark border-b-2 border-gray-200 cursor-pointer select-none transition-colors duration-200 hover:bg-gray-200">
-              IP Address
-              <span class="ml-2 text-[0.7rem] text-indigo-600" v-if="sortColumn === 'ip_address'">
-                <font-awesome-icon :icon="['fas', sortDirection === 'asc' ? 'sort-up' : 'sort-down']" />
-              </span>
-            </th>
-            <th @click="sortBy('role')" class="p-4 text-left font-semibold text-sidebar-dark border-b-2 border-gray-200 cursor-pointer select-none transition-colors duration-200 hover:bg-gray-200">
-              Role
-              <span class="ml-2 text-[0.7rem] text-indigo-600" v-if="sortColumn === 'role'">
-                <font-awesome-icon :icon="['fas', sortDirection === 'asc' ? 'sort-up' : 'sort-down']" />
-              </span>
-            </th>
-            <th @click="sortBy('status')" class="p-4 text-left font-semibold text-sidebar-dark border-b-2 border-gray-200 cursor-pointer select-none transition-colors duration-200 hover:bg-gray-200">
-              Status
-              <span class="ml-2 text-[0.7rem] text-indigo-600" v-if="sortColumn === 'status'">
-                <font-awesome-icon :icon="['fas', sortDirection === 'asc' ? 'sort-up' : 'sort-down']" />
-              </span>
-            </th>
-            <th class="p-4 text-left font-semibold text-sidebar-dark border-b-2 border-gray-200">
-              Health
-            </th>
-            <th @click="sortBy('first_seen')" class="p-4 text-left font-semibold text-sidebar-dark border-b-2 border-gray-200 cursor-pointer select-none transition-colors duration-200 hover:bg-gray-200">
-              First Seen
-              <span class="ml-2 text-[0.7rem] text-indigo-600" v-if="sortColumn === 'first_seen'">
-                <font-awesome-icon :icon="['fas', sortDirection === 'asc' ? 'sort-up' : 'sort-down']" />
-              </span>
-            </th>
-            <th @click="sortBy('last_config_download')" class="p-4 text-left font-semibold text-sidebar-dark border-b-2 border-gray-200 cursor-pointer select-none transition-colors duration-200 hover:bg-gray-200">
-              Last Config Download
-              <span class="ml-2 text-[0.7rem] text-indigo-600" v-if="sortColumn === 'last_config_download'">
-                <font-awesome-icon :icon="['fas', sortDirection === 'asc' ? 'sort-up' : 'sort-down']" />
-              </span>
-            </th>
-            <th class="p-4 text-left font-semibold text-sidebar-dark border-b-2 border-gray-200">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="device in filteredAndSortedDevices" :key="device.id" class="hover:bg-gray-50">
-            <td class="p-4 border-b border-gray-200 font-mono text-[0.9rem]">{{ device.mac_address }}</td>
-            <td class="p-4 border-b border-gray-200">{{ device.hostname || '-' }}</td>
-            <td class="p-4 border-b border-gray-200 font-mono text-[0.9rem]">{{ device.ip_address || '-' }}</td>
-            <td class="p-4 border-b border-gray-200">
-              <span v-if="device.status !== 'pending' && device.role" class="px-3 py-1 rounded-xl text-sm font-medium capitalize" :class="{
-                'bg-indigo-500 text-white': device.role === 'controlplane',
-                'bg-green-500 text-white': device.role === 'worker'
-              }">
-                {{ device.role }}
-              </span>
-              <span v-else class="text-gray-400 italic">-</span>
-            </td>
-            <td class="p-4 border-b border-gray-200">
-              <span class="px-3 py-1 rounded-xl text-sm font-medium capitalize" :class="{
+    <div v-else>
+      <div v-for="group in deviceGroups" :key="group.label" class="mb-8">
+        <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">{{ group.label }}</h3>
+        <div class="space-y-3">
+          <div v-for="device in group.devices" :key="device.id" class="bg-white rounded-lg shadow-md px-5 py-4">
+            <!-- Top row: identifiers + badges -->
+            <div class="flex items-center gap-8">
+              <div class="min-w-0">
+                <span class="text-xs text-gray-400 uppercase tracking-wide block leading-none mb-1">Hostname</span>
+                <span class="font-medium text-sidebar-dark truncate block text-sm">{{ device.hostname || '-' }}</span>
+              </div>
+              <div class="shrink-0">
+                <span class="text-xs text-gray-400 uppercase tracking-wide block leading-none mb-1">MAC</span>
+                <span class="font-mono text-sm text-gray-600">{{ device.mac_address }}</span>
+              </div>
+              <div class="shrink-0">
+                <span class="text-xs text-gray-400 uppercase tracking-wide block leading-none mb-1">IP</span>
+                <span class="font-mono text-sm text-gray-600">{{ device.ip_address || '-' }}</span>
+              </div>
+              <span class="px-3 py-1 rounded-xl text-sm font-medium capitalize ml-auto shrink-0" :class="{
                 'bg-amber-100 text-amber-800': device.status === 'pending',
                 'bg-green-100 text-green-800': device.status === 'approved',
                 'bg-red-100 text-red-800': device.status === 'rejected'
               }">
                 {{ device.status }}
               </span>
-            </td>
-            <td class="p-4 border-b border-gray-200">
-              <div v-if="health[device.mac_address]" class="flex items-center gap-2">
-                <span class="inline-flex items-center gap-1" :data-tooltip="health[device.mac_address].ping ? 'Ping OK' : 'Ping failed'">
-                  <span class="w-2.5 h-2.5 rounded-full" :class="health[device.mac_address].ping ? 'bg-green-500' : 'bg-red-500'"></span>
-                  <span class="text-xs text-gray-500">Net</span>
-                </span>
-                <span class="inline-flex items-center gap-1" :data-tooltip="health[device.mac_address].talos_api ? 'Talos API responding' : 'Talos API not responding'">
-                  <span class="w-2.5 h-2.5 rounded-full" :class="health[device.mac_address].talos_api ? 'bg-green-500' : 'bg-red-500'"></span>
-                  <span class="text-xs text-gray-500">API</span>
-                </span>
+            </div>
+            <!-- Bottom row: health, resources, timestamps + actions -->
+            <div class="flex items-start gap-8 text-sm text-gray-500 mt-3 pt-3 border-t border-gray-100">
+              <!-- Health -->
+              <div>
+                <span class="text-xs text-gray-400 uppercase tracking-wide block leading-none mb-1">Health</span>
+                <div v-if="health[device.mac_address]" class="flex flex-col gap-1">
+                  <div class="inline-flex items-center gap-2" :data-tooltip="health[device.mac_address].ping ? 'Ping OK' : 'Ping failed'">
+                    <span class="w-2 h-2 rounded-full" :class="health[device.mac_address].ping ? 'bg-green-500' : 'bg-red-500'"></span>
+                    <span>Network</span>
+                  </div>
+                  <div class="inline-flex items-center gap-2" :data-tooltip="health[device.mac_address].talos_api ? 'Talos API responding' : 'Talos API not responding'">
+                    <span class="w-2 h-2 rounded-full" :class="health[device.mac_address].talos_api ? 'bg-green-500' : 'bg-red-500'"></span>
+                    <span>Talos API</span>
+                  </div>
+                </div>
+                <span v-else class="text-gray-400 italic">-</span>
               </div>
-              <span v-else class="text-gray-400 italic text-sm">-</span>
-            </td>
-            <td class="p-4 border-b border-gray-200">{{ formatDate(device.first_seen) }}</td>
-            <td class="p-4 border-b border-gray-200">{{ device.last_config_download ? formatDate(device.last_config_download) : 'Never' }}</td>
-            <td class="p-4 border-b border-gray-200 flex gap-2">
-              <button
-                v-if="device.status === 'pending'"
-                @click="openApprovalModal(device.id)"
-                class="px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 bg-green-100 text-green-800 hover:bg-green-200"
-                data-tooltip="Approve"
-              >
-                <font-awesome-icon :icon="['fas', 'check']" />
-              </button>
-              <button
-                v-if="device.status === 'pending'"
-                @click="rejectDevice(device.id)"
-                class="px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 bg-red-100 text-red-800 hover:bg-red-200"
-                data-tooltip="Reject"
-              >
-                <font-awesome-icon :icon="['fas', 'xmark']" />
-              </button>
-              <button
-                v-if="device.status === 'approved'"
-                @click="toggleWipeFlag(device)"
-                :class="[
-                  'px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 inline-flex items-center gap-1',
-                  device.wipe_on_next_boot
-                    ? 'bg-red-600 text-white font-semibold text-[0.8rem] px-2.5 py-1 animate-wipe-pulse'
-                    : 'bg-red-100 text-red-800 hover:bg-red-200'
-                ]"
-                :data-tooltip="device.wipe_on_next_boot ? 'Cancel scheduled wipe' : 'Wipe and reinstall on next boot'"
-              >
-                <font-awesome-icon :icon="['fas', 'hard-drive']" />
-                <span v-if="device.wipe_on_next_boot" class="leading-none">WIPE</span>
-              </button>
-              <button
-                v-if="device.status === 'approved' && isDeviceOnline(device)"
-                @click="shutdownDevice(device)"
-                class="px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 bg-orange-100 text-orange-800 hover:bg-orange-200"
-                data-tooltip="Shutdown"
-              >
-                <font-awesome-icon :icon="['fas', 'power-off']" />
-              </button>
-              <button
-                v-if="device.status === 'approved' && !isDeviceOnline(device)"
-                @click="wakeDevice(device)"
-                class="px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
-                data-tooltip="Wake on LAN"
-              >
-                <font-awesome-icon :icon="['fas', 'bolt']" />
-              </button>
-              <button
-                @click="editDevice(device)"
-                class="px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 bg-blue-100 text-blue-800 hover:bg-blue-200"
-                data-tooltip="Edit"
-              >
-                <font-awesome-icon :icon="['fas', 'pen']" />
-              </button>
-              <button
-                @click="deleteDevice(device.id)"
-                class="px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 bg-gray-100 text-gray-500 hover:bg-gray-200"
-                data-tooltip="Delete"
-              >
-                <font-awesome-icon :icon="['fas', 'trash']" />
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+              <!-- Resources -->
+              <div>
+                <span class="text-xs text-gray-400 uppercase tracking-wide block leading-none mb-1">Resources</span>
+                <div v-if="deviceMetrics(device)" class="space-y-1">
+                  <div class="flex items-center gap-4">
+                    <span class="w-7">CPU</span>
+                    <div class="w-36 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div class="h-full rounded-full transition-all duration-500"
+                        :class="resourceBarClass(deviceMetrics(device).cpu_percent)"
+                        :style="{ width: Math.min(deviceMetrics(device).cpu_percent, 100) + '%' }"></div>
+                    </div>
+                    <span class="font-mono">{{ Math.round(deviceMetrics(device).cpu_percent) }}%</span>
+                  </div>
+                  <div class="flex items-center gap-4">
+                    <span class="w-7">Mem</span>
+                    <div class="w-36 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div class="h-full rounded-full transition-all duration-500"
+                        :class="resourceBarClass(deviceMetrics(device).memory_percent)"
+                        :style="{ width: Math.min(deviceMetrics(device).memory_percent, 100) + '%' }"></div>
+                    </div>
+                    <span class="font-mono">{{ Math.round(deviceMetrics(device).memory_percent) }}%</span>
+                  </div>
+                </div>
+                <span v-else class="text-gray-400 italic">-</span>
+              </div>
+              <!-- First Seen -->
+              <div>
+                <span class="text-xs text-gray-400 uppercase tracking-wide block leading-none mb-1">First Seen</span>
+                <span>{{ formatDate(device.first_seen) }}</span>
+              </div>
+              <!-- Last Config Download -->
+              <div>
+                <span class="text-xs text-gray-400 uppercase tracking-wide block leading-none mb-1">Last Config</span>
+                <span>{{ device.last_config_download ? formatDate(device.last_config_download) : 'Never' }}</span>
+              </div>
+              <!-- Actions -->
+              <div class="flex gap-2 ml-auto shrink-0 self-center">
+                <button
+                  v-if="device.status === 'pending'"
+                  @click="openApprovalModal(device.id)"
+                  class="px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 bg-green-100 text-green-800 hover:bg-green-200"
+                  data-tooltip="Approve"
+                >
+                  <font-awesome-icon :icon="['fas', 'check']" />
+                </button>
+                <button
+                  v-if="device.status === 'pending'"
+                  @click="rejectDevice(device.id)"
+                  class="px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 bg-red-100 text-red-800 hover:bg-red-200"
+                  data-tooltip="Reject"
+                >
+                  <font-awesome-icon :icon="['fas', 'xmark']" />
+                </button>
+                <button
+                  v-if="device.status === 'approved'"
+                  @click="toggleWipeFlag(device)"
+                  :class="[
+                    'px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 inline-flex items-center gap-1',
+                    device.wipe_on_next_boot
+                      ? 'bg-red-600 text-white font-semibold text-[0.8rem] px-2.5 py-1 animate-wipe-pulse'
+                      : 'bg-red-100 text-red-800 hover:bg-red-200'
+                  ]"
+                  :data-tooltip="device.wipe_on_next_boot ? 'Cancel scheduled wipe' : 'Wipe and reinstall on next boot'"
+                >
+                  <font-awesome-icon :icon="['fas', 'hard-drive']" />
+                  <span v-if="device.wipe_on_next_boot" class="leading-none">WIPE</span>
+                </button>
+                <button
+                  v-if="device.status === 'approved' && isDeviceOnline(device)"
+                  @click="shutdownDevice(device)"
+                  class="px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 bg-orange-100 text-orange-800 hover:bg-orange-200"
+                  data-tooltip="Shutdown"
+                >
+                  <font-awesome-icon :icon="['fas', 'power-off']" />
+                </button>
+                <button
+                  v-if="device.status === 'approved' && !isDeviceOnline(device)"
+                  @click="wakeDevice(device)"
+                  class="px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                  data-tooltip="Wake on LAN"
+                >
+                  <font-awesome-icon :icon="['fas', 'bolt']" />
+                </button>
+                <button
+                  @click="editDevice(device)"
+                  class="px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 bg-blue-100 text-blue-800 hover:bg-blue-200"
+                  data-tooltip="Edit"
+                >
+                  <font-awesome-icon :icon="['fas', 'pen']" />
+                </button>
+                <button
+                  @click="deleteDevice(device.id)"
+                  class="px-2 py-1 border-none rounded cursor-pointer text-base transition-all duration-200 bg-gray-100 text-gray-500 hover:bg-gray-200"
+                  data-tooltip="Delete"
+                >
+                  <font-awesome-icon :icon="['fas', 'trash']" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Add/Edit Device Modal -->
@@ -708,8 +699,8 @@ export default {
       loading: true,
       statusFilter: '',
       searchQuery: '',
-      sortColumn: 'first_seen',
-      sortDirection: 'desc',
+      sortColumn: 'hostname',
+      sortDirection: 'asc',
       showAddModal: false,
       showApprovalModal: false,
       editingDevice: null,
@@ -741,6 +732,7 @@ export default {
       unsubscribeWs: null,
       deviceMap: new Map(), // Track devices by MAC address for change detection
       health: {},
+      metrics: null,
       bootstrapping: false,
       isEditingOnlyControlPlane: false,
       showWipeModal: false,
@@ -853,43 +845,34 @@ export default {
         return { ...dev, state, stepText }
       })
     },
-    filteredAndSortedDevices() {
+    filteredDevices() {
       let result = [...this.devices]
-
-      // Apply search filter
       if (this.searchQuery) {
         const query = this.searchQuery.toLowerCase()
-        result = result.filter(device => {
-          return (
-            device.mac_address?.toLowerCase().includes(query) ||
-            device.hostname?.toLowerCase().includes(query) ||
-            device.ip_address?.toLowerCase().includes(query)
-          )
-        })
+        result = result.filter(device =>
+          device.mac_address?.toLowerCase().includes(query) ||
+          device.hostname?.toLowerCase().includes(query) ||
+          device.ip_address?.toLowerCase().includes(query)
+        )
       }
-
-      // Apply sorting
-      if (this.sortColumn) {
-        result.sort((a, b) => {
-          let aVal = a[this.sortColumn]
-          let bVal = b[this.sortColumn]
-
-          // Handle null/undefined values
-          if (aVal === null || aVal === undefined) aVal = ''
-          if (bVal === null || bVal === undefined) bVal = ''
-
-          // Convert to lowercase for string comparison
-          if (typeof aVal === 'string') aVal = aVal.toLowerCase()
-          if (typeof bVal === 'string') bVal = bVal.toLowerCase()
-
-          // Compare
-          if (aVal < bVal) return this.sortDirection === 'asc' ? -1 : 1
-          if (aVal > bVal) return this.sortDirection === 'asc' ? 1 : -1
-          return 0
-        })
-      }
-
+      result.sort((a, b) => {
+        const aVal = (a.hostname || '').toLowerCase()
+        const bVal = (b.hostname || '').toLowerCase()
+        if (aVal < bVal) return -1
+        if (aVal > bVal) return 1
+        return 0
+      })
       return result
+    },
+    deviceGroups() {
+      const cp = this.filteredDevices.filter(d => d.role === 'controlplane')
+      const workers = this.filteredDevices.filter(d => d.role === 'worker')
+      const other = this.filteredDevices.filter(d => d.role !== 'controlplane' && d.role !== 'worker')
+      const groups = []
+      if (cp.length > 0) groups.push({ label: 'Control Plane', devices: cp })
+      if (workers.length > 0) groups.push({ label: 'Workers', devices: workers })
+      if (other.length > 0) groups.push({ label: 'Pending', devices: other })
+      return groups
     }
   },
   async mounted() {
@@ -898,6 +881,7 @@ export default {
     this.loadStorageDefaults()
     this.subscribeToWebSocket()
     apiService.getDeviceHealth().then(h => { this.health = h || {} }).catch(() => {})
+    apiService.getMetrics().then(m => { this.metrics = m || null }).catch(() => {})
     this.checkRollingRefreshStatus()
   },
   beforeUnmount() {
@@ -949,6 +933,10 @@ export default {
       this.unsubscribeWs = websocketService.subscribe((event) => {
         if (event.type === 'device_health') {
           this.health = event.data || {}
+          return
+        }
+        if (event.type === 'metrics_update') {
+          this.metrics = event.data || null
           return
         }
         // Reload devices when any device event occurs
@@ -1269,6 +1257,24 @@ export default {
     isDeviceOnline(device) {
       const h = this.health[device.mac_address]
       return h && h.talos_api
+    },
+    deviceMetrics(device) {
+      if (!this.metrics || !this.metrics.available || !this.metrics.nodes) return null
+      if (device.hostname && this.metrics.nodes[device.hostname]) {
+        return this.metrics.nodes[device.hostname]
+      }
+      if (device.ip_address) {
+        const ip = device.ip_address.split('/')[0]
+        for (const node of Object.values(this.metrics.nodes)) {
+          if (node.addresses && node.addresses.includes(ip)) return node
+        }
+      }
+      return null
+    },
+    resourceBarClass(percent) {
+      if (percent >= 90) return 'bg-red-500'
+      if (percent >= 70) return 'bg-amber-500'
+      return 'bg-green-500'
     },
     async shutdownDevice(device) {
       const name = device.hostname || device.mac_address

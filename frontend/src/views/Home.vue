@@ -76,7 +76,7 @@
       </div>
 
       <!-- C. Gauges -->
-      <div class="grid grid-cols-3 gap-4 mb-6 max-lg:grid-cols-2">
+      <div class="grid grid-cols-5 gap-4 mb-6 max-lg:grid-cols-3 max-md:grid-cols-2">
         <!-- Online -->
         <div class="bg-white rounded-lg shadow-md p-5 flex flex-col items-center">
           <svg viewBox="0 0 120 120" class="w-24 h-24">
@@ -137,6 +137,40 @@
             <span class="inline-block w-2 h-2 rounded-full bg-indigo-500 mr-1"></span>{{ controlPlanes.length }} CP
             <span class="inline-block w-2 h-2 rounded-full bg-teal-500 ml-2 mr-1"></span>{{ workers.length }} Worker
           </p>
+        </div>
+
+        <!-- CPU Utilization -->
+        <div class="bg-white rounded-lg shadow-md p-5 flex flex-col items-center">
+          <svg viewBox="0 0 120 120" class="w-24 h-24">
+            <circle cx="60" cy="60" r="50" fill="none" stroke-width="10" class="stroke-gray-200" />
+            <circle cx="60" cy="60" r="50" fill="none" stroke-width="10" stroke-linecap="round"
+              class="transition-all duration-700"
+              :stroke="metricsAvailable ? cpuGaugeColor : '#d1d5db'"
+              :stroke-dasharray="314"
+              :stroke-dashoffset="metricsAvailable ? 314 - (314 * clusterCpuPercent / 100) : 314"
+              transform="rotate(-90 60 60)" />
+            <text x="60" y="56" text-anchor="middle" class="text-xl font-bold fill-sidebar-dark" style="font-size:22px">{{ metricsAvailable ? clusterCpuPercent + '%' : 'N/A' }}</text>
+            <text x="60" y="72" text-anchor="middle" class="fill-gray-400" style="font-size:11px">{{ metricsAvailable ? clusterCpuLabel : 'No Metrics' }}</text>
+          </svg>
+          <p class="text-sm font-semibold text-sidebar-dark mt-2">CPU Utilization</p>
+          <p class="text-xs text-gray-400">Cluster-wide CPU usage</p>
+        </div>
+
+        <!-- Memory Utilization -->
+        <div class="bg-white rounded-lg shadow-md p-5 flex flex-col items-center">
+          <svg viewBox="0 0 120 120" class="w-24 h-24">
+            <circle cx="60" cy="60" r="50" fill="none" stroke-width="10" class="stroke-gray-200" />
+            <circle cx="60" cy="60" r="50" fill="none" stroke-width="10" stroke-linecap="round"
+              class="transition-all duration-700"
+              :stroke="metricsAvailable ? memGaugeColor : '#d1d5db'"
+              :stroke-dasharray="314"
+              :stroke-dashoffset="metricsAvailable ? 314 - (314 * clusterMemPercent / 100) : 314"
+              transform="rotate(-90 60 60)" />
+            <text x="60" y="56" text-anchor="middle" class="text-xl font-bold fill-sidebar-dark" style="font-size:22px">{{ metricsAvailable ? clusterMemPercent + '%' : 'N/A' }}</text>
+            <text x="60" y="72" text-anchor="middle" class="fill-gray-400" style="font-size:11px">{{ metricsAvailable ? clusterMemLabel : 'No Metrics' }}</text>
+          </svg>
+          <p class="text-sm font-semibold text-sidebar-dark mt-2">Memory Utilization</p>
+          <p class="text-xs text-gray-400">Cluster-wide memory usage</p>
         </div>
       </div>
 
@@ -249,6 +283,7 @@ export default {
       volumes: [],
       auditLogs: [],
       health: {},
+      metrics: null,
       unsubscribeWs: null
     }
   },
@@ -292,6 +327,41 @@ export default {
     workerPercent() {
       if (!this.approvedDevices.length) return 0
       return Math.round(((this.controlPlanes.length + this.workers.length) / this.approvedDevices.length) * 100)
+    },
+    metricsAvailable() {
+      return this.metrics && this.metrics.available && this.metrics.cluster
+    },
+    clusterCpuPercent() {
+      if (!this.metricsAvailable) return 0
+      return Math.round(this.metrics.cluster.cpu_percent)
+    },
+    clusterMemPercent() {
+      if (!this.metricsAvailable) return 0
+      return Math.round(this.metrics.cluster.memory_percent)
+    },
+    clusterCpuLabel() {
+      if (!this.metricsAvailable) return ''
+      const used = (this.metrics.cluster.cpu_usage_millicores / 1000).toFixed(1)
+      const total = (this.metrics.cluster.cpu_allocatable_millicores / 1000).toFixed(1)
+      return `${used}/${total} cores`
+    },
+    clusterMemLabel() {
+      if (!this.metricsAvailable) return ''
+      const used = (this.metrics.cluster.memory_usage_bytes / (1024 ** 3)).toFixed(1)
+      const total = (this.metrics.cluster.memory_allocatable_bytes / (1024 ** 3)).toFixed(1)
+      return `${used}/${total} GiB`
+    },
+    cpuGaugeColor() {
+      const p = this.clusterCpuPercent
+      if (p >= 90) return '#ef4444'
+      if (p >= 70) return '#f59e0b'
+      return '#22c55e'
+    },
+    memGaugeColor() {
+      const p = this.clusterMemPercent
+      if (p >= 90) return '#ef4444'
+      if (p >= 70) return '#f59e0b'
+      return '#22c55e'
     }
   },
   async mounted() {
@@ -301,9 +371,16 @@ export default {
     // Fetch initial health status
     apiService.getDeviceHealth().then(h => { this.health = h || {} }).catch(() => {})
 
+    // Fetch initial metrics
+    apiService.getMetrics().then(m => { this.metrics = m || null }).catch(() => {})
+
     this.unsubscribeWs = websocketService.subscribe((event) => {
       if (event.type === 'device_health') {
         this.health = event.data || {}
+        return
+      }
+      if (event.type === 'metrics_update') {
+        this.metrics = event.data || null
         return
       }
       const deviceEvents = [

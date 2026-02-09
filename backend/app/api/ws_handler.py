@@ -153,6 +153,12 @@ from app.api.handlers.cicd import (           # noqa: F401
     stop_cicd_broadcaster,
 )
 
+from app.api.handlers.metrics import (        # noqa: F401
+    METRICS_ACTIONS,
+    start_metrics_broadcaster,
+    stop_metrics_broadcaster,
+)
+
 from app.api.handlers.devices import (        # noqa: F401
     DEVICE_ACTIONS,
     _devices_list,
@@ -188,6 +194,7 @@ ACTION_MAP.update(MODULE_ACTIONS)
 ACTION_MAP.update(LONGHORN_ACTIONS)
 ACTION_MAP.update(TROUBLESHOOT_ACTIONS)
 ACTION_MAP.update(CICD_ACTIONS)
+ACTION_MAP.update(METRICS_ACTIONS)
 
 
 async def handle_ws_message(ws: WebSocket, raw: str):

@@ -77,6 +77,7 @@ def mock_helm_runner():
     runner.install = AsyncMock(return_value=(True, "installed"))
     runner.upgrade = AsyncMock(return_value=(True, "upgraded"))
     runner.uninstall = AsyncMock(return_value=(True, "uninstalled"))
+    runner.force_uninstall = AsyncMock(return_value=(True, "uninstalled"))
     runner.get_status = AsyncMock(return_value={"version": 1, "info": {"app_version": "1.0"}})
     runner.list_releases = AsyncMock(return_value=[])
     runner.search_versions = AsyncMock(return_value=[])

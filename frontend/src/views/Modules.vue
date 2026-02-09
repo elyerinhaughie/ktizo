@@ -125,7 +125,6 @@
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 mb-1">
                           <span class="font-semibold text-sidebar-dark">{{ mod.name }}</span>
-                          <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-600">application</span>
                         </div>
                         <p class="text-gray-500 text-sm leading-relaxed m-0">{{ mod.description }}</p>
                       </div>
@@ -147,7 +146,7 @@
             <p class="text-gray-500 text-sm mb-4">{{ activeTab === 'cluster' ? 'Cluster-scoped' : 'Application-scoped' }} Helm releases</p>
 
             <div v-if="!filteredReleases.length" class="bg-white p-8 rounded-lg shadow-md text-gray-400 text-center">
-              No cluster modules deployed yet. Install one from the catalog above.
+              {{ activeTab === 'cluster' ? 'No cluster modules deployed yet.' : 'No application modules deployed yet.' }} Install one from the catalog above.
             </div>
             <div v-else>
               <div v-for="(nsReleases, ns, nsIdx) in releasesByNamespace" :key="ns" :id="'ns-' + ns" class="bg-white rounded-lg shadow-md scroll-mt-24 overflow-hidden" :class="nsIdx < Object.keys(releasesByNamespace).length - 1 ? 'mb-4' : ''">
@@ -157,7 +156,13 @@
                   <span class="text-gray-400 text-xs">{{ nsReleases.length }} release{{ nsReleases.length !== 1 ? 's' : '' }}</span>
                 </div>
                 <div class="px-6 py-4">
-                  <table class="w-full border-collapse">
+                  <table class="w-full table-fixed border-collapse">
+                    <colgroup>
+                      <col style="width: 20%" />
+                      <col style="width: 50%" />
+                      <col style="width: 12%" />
+                      <col style="width: 18%" />
+                    </colgroup>
                     <thead>
                       <tr class="border-b-2 border-gray-200">
                         <th class="text-left py-2.5 px-3 text-sidebar-dark text-sm font-semibold">Release</th>
@@ -168,23 +173,25 @@
                     </thead>
                     <tbody>
                       <tr v-for="rel in nsReleases" :key="rel.id" class="border-b border-gray-100 hover:bg-gray-50">
-                        <td class="py-3 px-3 font-medium text-sm">{{ rel.release_name }}</td>
-                        <td class="py-3 px-3 text-sm text-gray-600">{{ rel.chart_name }}</td>
+                        <td class="py-3 px-3 font-medium text-sm truncate">{{ rel.release_name }}</td>
+                        <td class="py-3 px-3 text-sm text-gray-600 truncate">{{ rel.chart_name }}</td>
                         <td class="py-3 px-3">
                           <span :class="statusBadgeClass(rel.status)" class="px-2 py-0.5 rounded-full text-xs font-medium">{{ rel.status }}</span>
-                          <div v-if="rel.status === 'failed' && rel.status_message" class="text-red-500 text-xs mt-1 max-w-xs truncate" :title="rel.status_message">{{ rel.status_message }}</div>
+                          <div v-if="rel.status === 'failed' && rel.status_message" class="text-red-500 text-xs mt-1 truncate" :title="rel.status_message">{{ rel.status_message }}</div>
                         </td>
-                        <td class="py-3 px-3 text-right flex gap-2 justify-end">
-                          <button v-if="rel.status === 'deploying' || rel.status === 'uninstalling' || rel.log_output" @click="openLogViewer(rel)" class="text-gray-500 hover:text-gray-700 bg-transparent border-none cursor-pointer text-sm" title="View Log">
-                            <font-awesome-icon :icon="['fas', 'terminal']" />
-                          </button>
-                          <button v-if="['deploying', 'uninstalling', 'failed'].includes(rel.status)" @click="forceDelete(rel)" class="text-red-500 hover:text-red-700 bg-transparent border-none cursor-pointer text-xs" title="Force delete">Force Remove</button>
-                          <button v-if="rel.status === 'deployed' && getCatalogEntry(rel)" @click="openUpgradeForRelease(rel)" class="text-blue-500 hover:text-blue-700 bg-transparent border-none cursor-pointer text-sm" title="Edit Values">
-                            <font-awesome-icon :icon="['fas', 'pen']" />
-                          </button>
-                          <button v-if="rel.status === 'deployed'" @click="confirmUninstall(rel)" class="text-red-500 hover:text-red-700 bg-transparent border-none cursor-pointer text-sm" title="Uninstall">
-                            <font-awesome-icon :icon="['fas', 'trash']" />
-                          </button>
+                        <td class="py-3 px-3">
+                          <div class="flex gap-2 justify-end">
+                            <button v-if="rel.status === 'deploying' || rel.status === 'uninstalling' || rel.log_output" @click="openLogViewer(rel)" class="text-gray-500 hover:text-gray-700 bg-transparent border-none cursor-pointer text-sm" title="View Log">
+                              <font-awesome-icon :icon="['fas', 'terminal']" />
+                            </button>
+                            <button v-if="['deploying', 'uninstalling', 'failed'].includes(rel.status)" @click="forceDelete(rel)" class="text-red-500 hover:text-red-700 bg-transparent border-none cursor-pointer text-xs" title="Force delete">Force Remove</button>
+                            <button v-if="rel.status === 'deployed' && getCatalogEntry(rel)" @click="openUpgradeForRelease(rel)" class="text-blue-500 hover:text-blue-700 bg-transparent border-none cursor-pointer text-sm" title="Edit Values">
+                              <font-awesome-icon :icon="['fas', 'pen']" />
+                            </button>
+                            <button v-if="rel.status === 'deployed'" @click="confirmUninstall(rel)" class="text-red-500 hover:text-red-700 bg-transparent border-none cursor-pointer text-sm" title="Uninstall">
+                              <font-awesome-icon :icon="['fas', 'trash']" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     </tbody>
@@ -198,95 +205,98 @@
     </div>
 
     <!-- Wizard Modal -->
-    <div v-if="showWizard" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-      <div class="bg-white p-8 rounded-lg max-w-[600px] w-[90%] max-h-[90vh] overflow-y-auto shadow-xl">
-        <h3 class="text-sidebar-dark text-xl mt-0 mb-2">{{ wizardUpgrade ? 'Upgrade' : 'Deploy' }} {{ wizardModule.name }}</h3>
-        <p class="text-gray-500 text-sm mb-6">{{ wizardModule.description }}</p>
-
-        <form @submit.prevent="deployFromWizard">
-          <!-- Release Name + Namespace -->
-          <div class="grid grid-cols-2 gap-4 mb-6">
-            <div>
-              <label class="block mb-1 text-sidebar-dark font-medium text-sm">Release Name *</label>
-              <input v-model="wizardForm.release_name" type="text" required :disabled="wizardUpgrade" :placeholder="wizardModule.scope === 'application' ? 'e.g., cloudpirates-redis' : ''" class="w-full p-2 border border-gray-300 rounded text-sm disabled:bg-gray-100 disabled:cursor-not-allowed" />
-              <small v-if="wizardModule.scope === 'application'" class="text-gray-400 text-xs">Unique name for this deployment</small>
+    <div v-if="showWizard" class="fixed top-0 bottom-0 right-0 left-[250px] bg-black/50 z-50 flex items-center justify-center">
+      <div class="bg-white rounded-lg max-w-[950px] w-[90%] max-h-[90vh] flex flex-col shadow-xl">
+        <div class="p-8 pb-4 shrink-0 border-b border-gray-200">
+          <h3 class="text-sidebar-dark text-xl mt-0 mb-2">{{ wizardUpgrade ? 'Upgrade' : 'Deploy' }} {{ wizardModule.name }}</h3>
+          <p class="text-gray-500 text-sm mb-0">{{ wizardModule.description }}</p>
+        </div>
+        <form @submit.prevent="deployFromWizard" class="flex flex-col flex-1 min-h-0">
+          <div class="flex-1 overflow-y-auto px-8 py-6">
+            <!-- Release Name + Namespace -->
+            <div class="grid grid-cols-2 gap-4 mb-6">
+              <div>
+                <label class="block mb-1 text-sidebar-dark font-medium text-sm">Release Name *</label>
+                <input v-model="wizardForm.release_name" type="text" required :disabled="wizardUpgrade" :placeholder="wizardModule.scope === 'application' ? 'e.g., cloudpirates-redis' : ''" class="w-full p-2 border border-gray-300 rounded text-sm disabled:bg-gray-100 disabled:cursor-not-allowed" />
+                <small v-if="wizardModule.scope === 'application'" class="text-gray-400 text-xs">Unique name for this deployment</small>
+              </div>
+              <div>
+                <label class="block mb-1 text-sidebar-dark font-medium text-sm">Namespace *</label>
+                <input v-model="wizardForm.namespace" type="text" required :disabled="wizardUpgrade" :placeholder="wizardModule.scope === 'application' ? 'e.g., cloudpirates' : ''" class="w-full p-2 border border-gray-300 rounded text-sm disabled:bg-gray-100 disabled:cursor-not-allowed" />
+                <small v-if="wizardModule.scope === 'application'" class="text-gray-400 text-xs">Namespace for isolation (created if missing)</small>
+              </div>
             </div>
-            <div>
-              <label class="block mb-1 text-sidebar-dark font-medium text-sm">Namespace *</label>
-              <input v-model="wizardForm.namespace" type="text" required :disabled="wizardUpgrade" :placeholder="wizardModule.scope === 'application' ? 'e.g., cloudpirates' : ''" class="w-full p-2 border border-gray-300 rounded text-sm disabled:bg-gray-100 disabled:cursor-not-allowed" />
-              <small v-if="wizardModule.scope === 'application'" class="text-gray-400 text-xs">Namespace for isolation (created if missing)</small>
+
+            <!-- Version -->
+            <div class="mb-6">
+              <label class="block mb-1 text-sidebar-dark font-medium text-sm">Chart Version</label>
+              <input v-model="wizardForm.chart_version" type="text" placeholder="latest" class="w-full p-2 border border-gray-300 rounded text-sm" />
+              <small class="text-gray-400 text-xs">Leave empty for the latest version</small>
             </div>
-          </div>
 
-          <!-- Version -->
-          <div class="mb-6">
-            <label class="block mb-1 text-sidebar-dark font-medium text-sm">Chart Version</label>
-            <input v-model="wizardForm.chart_version" type="text" placeholder="latest" class="w-full p-2 border border-gray-300 rounded text-sm" />
-            <small class="text-gray-400 text-xs">Leave empty for the latest version</small>
-          </div>
-
-          <!-- Wizard Fields grouped by section -->
-          <div v-for="section in wizardSections" :key="section" class="mb-6">
-            <h4 class="text-sidebar-dark text-sm font-semibold uppercase tracking-wider mb-3 text-gray-500 border-b border-gray-200 pb-2">{{ section }}</h4>
-            <div class="space-y-4">
-              <div v-for="field in wizardFieldsBySection(section)" :key="field.key">
-                <!-- Boolean -->
-                <label v-if="field.type === 'boolean'" class="flex items-start gap-3 p-3 rounded border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
-                  <input type="checkbox" v-model="wizardValues[field.key]" class="mt-0.5 w-auto cursor-pointer" />
-                  <div>
-                    <div class="font-medium text-sidebar-dark text-sm">{{ field.label }}</div>
-                    <div class="text-gray-500 text-xs mt-0.5 leading-relaxed">{{ field.description }}</div>
+            <!-- Wizard Fields grouped by section -->
+            <div v-for="section in wizardSections" :key="section" class="mb-6">
+              <h4 class="text-sidebar-dark text-sm font-semibold uppercase tracking-wider mb-3 text-gray-500 border-b border-gray-200 pb-2">{{ section }}</h4>
+              <div class="space-y-4">
+                <div v-for="field in wizardFieldsBySection(section)" :key="field.key">
+                  <!-- Boolean -->
+                  <label v-if="field.type === 'boolean'" class="flex items-start gap-3 p-3 rounded border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors">
+                    <input type="checkbox" v-model="wizardValues[field.key]" class="mt-0.5 w-auto cursor-pointer" />
+                    <div>
+                      <div class="font-medium text-sidebar-dark text-sm">{{ field.label }}</div>
+                      <div class="text-gray-500 text-xs mt-0.5 leading-relaxed">{{ field.description }}</div>
+                    </div>
+                  </label>
+                  <!-- Select -->
+                  <div v-else-if="field.type === 'select'">
+                    <label class="block mb-1 text-sidebar-dark font-medium text-sm">{{ field.label }}</label>
+                    <select v-model="wizardValues[field.key]" class="w-full p-2 border border-gray-300 rounded text-sm">
+                      <option v-for="opt in field.options" :key="opt" :value="opt">{{ opt }}</option>
+                    </select>
+                    <small class="text-gray-500 text-xs mt-1 block">{{ field.description }}</small>
                   </div>
-                </label>
-                <!-- Select -->
-                <div v-else-if="field.type === 'select'">
-                  <label class="block mb-1 text-sidebar-dark font-medium text-sm">{{ field.label }}</label>
-                  <select v-model="wizardValues[field.key]" class="w-full p-2 border border-gray-300 rounded text-sm">
-                    <option v-for="opt in field.options" :key="opt" :value="opt">{{ opt }}</option>
-                  </select>
-                  <small class="text-gray-500 text-xs mt-1 block">{{ field.description }}</small>
-                </div>
-                <!-- Number -->
-                <div v-else-if="field.type === 'number'">
-                  <label class="block mb-1 text-sidebar-dark font-medium text-sm">{{ field.label }}</label>
-                  <input type="number" v-model.number="wizardValues[field.key]" class="w-full max-w-[200px] p-2 border border-gray-300 rounded text-sm" />
-                  <small class="text-gray-500 text-xs mt-1 block">{{ field.description }}</small>
-                </div>
-                <!-- Textarea -->
-                <div v-else-if="field.type === 'textarea'">
-                  <label class="block mb-1 text-sidebar-dark font-medium text-sm">{{ field.label }}</label>
-                  <textarea v-model="wizardValues[field.key]" rows="4" class="w-full p-2 border border-gray-300 rounded text-sm font-mono" />
-                  <small class="text-gray-500 text-xs mt-1 block">{{ field.description }}</small>
-                </div>
-                <!-- Text (default) -->
-                <div v-else>
-                  <label class="block mb-1 text-sidebar-dark font-medium text-sm">{{ field.label }}</label>
-                  <input type="text" v-model="wizardValues[field.key]" :placeholder="field.placeholder || ''" :required="field.required" class="w-full p-2 border border-gray-300 rounded text-sm" />
-                  <small class="text-gray-500 text-xs mt-1 block">{{ field.description }}</small>
+                  <!-- Number -->
+                  <div v-else-if="field.type === 'number'">
+                    <label class="block mb-1 text-sidebar-dark font-medium text-sm">{{ field.label }}</label>
+                    <input type="number" v-model.number="wizardValues[field.key]" class="w-full max-w-[200px] p-2 border border-gray-300 rounded text-sm" />
+                    <small class="text-gray-500 text-xs mt-1 block">{{ field.description }}</small>
+                  </div>
+                  <!-- Textarea -->
+                  <div v-else-if="field.type === 'textarea'">
+                    <label class="block mb-1 text-sidebar-dark font-medium text-sm">{{ field.label }}</label>
+                    <textarea v-model="wizardValues[field.key]" rows="4" class="w-full p-2 border border-gray-300 rounded text-sm font-mono" />
+                    <small class="text-gray-500 text-xs mt-1 block">{{ field.description }}</small>
+                  </div>
+                  <!-- Text (default) -->
+                  <div v-else>
+                    <label class="block mb-1 text-sidebar-dark font-medium text-sm">{{ field.label }}</label>
+                    <input type="text" v-model="wizardValues[field.key]" :placeholder="field.placeholder || ''" :required="field.required" class="w-full p-2 border border-gray-300 rounded text-sm" />
+                    <small class="text-gray-500 text-xs mt-1 block">{{ field.description }}</small>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <!-- Raw Values toggle -->
-          <div class="mb-6">
-            <button type="button" @click="showRawValues = !showRawValues" class="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 bg-transparent border-none cursor-pointer">
-              <font-awesome-icon :icon="['fas', showRawValues ? 'chevron-down' : 'chevron-right']" class="text-xs" />
-              Advanced: Raw Values YAML
-            </button>
-            <div v-if="showRawValues" class="mt-2">
-              <textarea v-model="wizardForm.raw_values" rows="8" placeholder="# Additional Helm values in YAML format" class="w-full p-3 border border-gray-300 rounded text-sm font-mono" />
-              <small class="text-gray-400 text-xs">Merged with wizard field values. Raw values take precedence.</small>
+            <!-- Raw Values toggle -->
+            <div class="mb-6">
+              <button type="button" @click="showRawValues = !showRawValues" class="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 bg-transparent border-none cursor-pointer">
+                <font-awesome-icon :icon="['fas', showRawValues ? 'chevron-down' : 'chevron-right']" class="text-xs" />
+                Advanced: Raw Values YAML
+              </button>
+              <div v-if="showRawValues" class="mt-2">
+                <textarea v-model="wizardForm.raw_values" rows="8" placeholder="# Additional Helm values in YAML format" class="w-full p-3 border border-gray-300 rounded text-sm font-mono" />
+                <small class="text-gray-400 text-xs">Merged with wizard field values. Raw values take precedence.</small>
+              </div>
+            </div>
+
+            <!-- Notes -->
+            <div v-if="wizardModule.notes" class="p-4 bg-blue-50 border-l-4 border-blue-500 rounded text-sm text-blue-800 leading-relaxed">
+              <strong>Note:</strong> {{ wizardModule.notes }}
             </div>
           </div>
 
-          <!-- Notes -->
-          <div v-if="wizardModule.notes" class="mb-6 p-4 bg-blue-50 border-l-4 border-blue-500 rounded text-sm text-blue-800 leading-relaxed">
-            <strong>Note:</strong> {{ wizardModule.notes }}
-          </div>
-
-          <!-- Actions -->
-          <div class="flex justify-end gap-3">
+          <!-- Sticky Actions -->
+          <div class="flex justify-end gap-3 px-8 py-4 border-t border-gray-200 shrink-0 bg-white rounded-b-lg">
             <button type="button" @click="showWizard = false" class="py-2.5 px-6 border border-gray-300 rounded text-sm cursor-pointer bg-white hover:bg-gray-50">Cancel</button>
             <button type="submit" :disabled="deploying" class="bg-[#42b983] text-white py-2.5 px-6 border-none rounded text-sm font-medium cursor-pointer transition-colors hover:bg-[#35a372] disabled:bg-gray-300 disabled:cursor-not-allowed">
               {{ deploying ? 'Deploying...' : (wizardUpgrade ? 'Upgrade' : 'Deploy') }}
@@ -297,45 +307,49 @@
     </div>
 
     <!-- Generic Chart Modal -->
-    <div v-if="showGeneric" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-      <div class="bg-white p-8 rounded-lg max-w-[600px] w-[90%] max-h-[90vh] overflow-y-auto shadow-xl">
-        <h3 class="text-sidebar-dark text-xl mt-0 mb-6">Deploy Custom Helm Chart</h3>
-        <form @submit.prevent="deployGeneric">
-          <div class="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <label class="block mb-1 text-sidebar-dark font-medium text-sm">Repository Name</label>
-              <input v-model="genericForm.repo_name" type="text" required placeholder="e.g., bitnami" class="w-full p-2 border border-gray-300 rounded text-sm" />
+    <div v-if="showGeneric" class="fixed top-0 bottom-0 right-0 left-[250px] bg-black/50 z-50 flex items-center justify-center">
+      <div class="bg-white rounded-lg max-w-[950px] w-[90%] max-h-[90vh] flex flex-col shadow-xl">
+        <div class="p-8 pb-4 shrink-0 border-b border-gray-200">
+          <h3 class="text-sidebar-dark text-xl mt-0 mb-0">Deploy Custom Helm Chart</h3>
+        </div>
+        <form @submit.prevent="deployGeneric" class="flex flex-col flex-1 min-h-0">
+          <div class="flex-1 overflow-y-auto px-8 py-6">
+            <div class="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label class="block mb-1 text-sidebar-dark font-medium text-sm">Repository Name</label>
+                <input v-model="genericForm.repo_name" type="text" required placeholder="e.g., bitnami" class="w-full p-2 border border-gray-300 rounded text-sm" />
+              </div>
+              <div>
+                <label class="block mb-1 text-sidebar-dark font-medium text-sm">Repository URL</label>
+                <input v-model="genericForm.repo_url" type="text" required placeholder="https://charts.bitnami.com/bitnami" class="w-full p-2 border border-gray-300 rounded text-sm" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label class="block mb-1 text-sidebar-dark font-medium text-sm">Chart Name</label>
+                <input v-model="genericForm.chart_name" type="text" required placeholder="e.g., bitnami/redis" class="w-full p-2 border border-gray-300 rounded text-sm" />
+              </div>
+              <div>
+                <label class="block mb-1 text-sidebar-dark font-medium text-sm">Chart Version</label>
+                <input v-model="genericForm.chart_version" type="text" placeholder="latest" class="w-full p-2 border border-gray-300 rounded text-sm" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label class="block mb-1 text-sidebar-dark font-medium text-sm">Release Name</label>
+                <input v-model="genericForm.release_name" type="text" required placeholder="my-release" class="w-full p-2 border border-gray-300 rounded text-sm" />
+              </div>
+              <div>
+                <label class="block mb-1 text-sidebar-dark font-medium text-sm">Namespace</label>
+                <input v-model="genericForm.namespace" type="text" required placeholder="default" class="w-full p-2 border border-gray-300 rounded text-sm" />
+              </div>
             </div>
             <div>
-              <label class="block mb-1 text-sidebar-dark font-medium text-sm">Repository URL</label>
-              <input v-model="genericForm.repo_url" type="text" required placeholder="https://charts.bitnami.com/bitnami" class="w-full p-2 border border-gray-300 rounded text-sm" />
+              <label class="block mb-1 text-sidebar-dark font-medium text-sm">Values (YAML)</label>
+              <textarea v-model="genericForm.values_yaml" rows="8" placeholder="# Helm values in YAML format" class="w-full p-3 border border-gray-300 rounded text-sm font-mono" />
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <label class="block mb-1 text-sidebar-dark font-medium text-sm">Chart Name</label>
-              <input v-model="genericForm.chart_name" type="text" required placeholder="e.g., bitnami/redis" class="w-full p-2 border border-gray-300 rounded text-sm" />
-            </div>
-            <div>
-              <label class="block mb-1 text-sidebar-dark font-medium text-sm">Chart Version</label>
-              <input v-model="genericForm.chart_version" type="text" placeholder="latest" class="w-full p-2 border border-gray-300 rounded text-sm" />
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <label class="block mb-1 text-sidebar-dark font-medium text-sm">Release Name</label>
-              <input v-model="genericForm.release_name" type="text" required placeholder="my-release" class="w-full p-2 border border-gray-300 rounded text-sm" />
-            </div>
-            <div>
-              <label class="block mb-1 text-sidebar-dark font-medium text-sm">Namespace</label>
-              <input v-model="genericForm.namespace" type="text" required placeholder="default" class="w-full p-2 border border-gray-300 rounded text-sm" />
-            </div>
-          </div>
-          <div class="mb-6">
-            <label class="block mb-1 text-sidebar-dark font-medium text-sm">Values (YAML)</label>
-            <textarea v-model="genericForm.values_yaml" rows="8" placeholder="# Helm values in YAML format" class="w-full p-3 border border-gray-300 rounded text-sm font-mono" />
-          </div>
-          <div class="flex justify-end gap-3">
+          <div class="flex justify-end gap-3 px-8 py-4 border-t border-gray-200 shrink-0 bg-white rounded-b-lg">
             <button type="button" @click="showGeneric = false" class="py-2.5 px-6 border border-gray-300 rounded text-sm cursor-pointer bg-white hover:bg-gray-50">Cancel</button>
             <button type="submit" :disabled="deploying" class="bg-[#42b983] text-white py-2.5 px-6 border-none rounded text-sm font-medium cursor-pointer transition-colors hover:bg-[#35a372] disabled:bg-gray-300 disabled:cursor-not-allowed">
               {{ deploying ? 'Deploying...' : 'Deploy' }}
@@ -346,7 +360,7 @@
     </div>
 
     <!-- Uninstall Confirmation Modal -->
-    <div v-if="showUninstallConfirm" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+    <div v-if="showUninstallConfirm" class="fixed top-0 bottom-0 right-0 left-[250px] bg-black/50 z-50 flex items-center justify-center">
       <div class="bg-white p-8 rounded-lg max-w-[450px] w-[90%] shadow-xl">
         <h3 class="text-sidebar-dark text-xl mt-0 mb-2">Uninstall {{ uninstallTarget?.release_name }}?</h3>
         <p class="text-gray-500 text-sm mb-6">
@@ -362,7 +376,7 @@
     </div>
 
     <!-- Import Existing Release Modal -->
-    <div v-if="showImportConfirm" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+    <div v-if="showImportConfirm" class="fixed top-0 bottom-0 right-0 left-[250px] bg-black/50 z-50 flex items-center justify-center">
       <div class="bg-white p-8 rounded-lg max-w-[500px] w-[90%] shadow-xl">
         <h3 class="text-sidebar-dark text-xl mt-0 mb-2">Release Already Exists in Cluster</h3>
         <p class="text-gray-500 text-sm mb-4">
@@ -386,7 +400,7 @@
     </div>
 
     <!-- Log Viewer Modal -->
-    <div v-if="showLogViewer" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" @click.self="showLogViewer = false">
+    <div v-if="showLogViewer" class="fixed top-0 bottom-0 right-0 left-[250px] bg-black/50 z-50 flex items-center justify-center" @click.self="showLogViewer = false">
       <div class="bg-white rounded-lg max-w-[800px] w-[90%] max-h-[85vh] flex flex-col shadow-xl">
         <div class="flex items-center justify-between p-4 border-b border-gray-200 shrink-0">
           <div>
@@ -702,6 +716,20 @@ export default {
       const defaults = this.wizardModule.default_values || {}
       const merged = { ...defaults }
       this.deepMerge(merged, nested)
+
+      // Metrics Server: build args list from underscore-prefixed wizard fields
+      if (this.wizardModule?.id === 'metrics-server') {
+        const args = [
+          '--cert-dir=/tmp',
+          '--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname',
+          '--kubelet-use-node-status-port',
+          `--metric-resolution=${this.wizardValues._metricResolution || '15s'}`,
+        ]
+        if (this.wizardValues._kubeletInsecureTls) {
+          args.push('--kubelet-insecure-tls')
+        }
+        merged.args = args
+      }
 
       if (Object.keys(merged).length > 0) {
         lines.push(this.toYaml(merged, 0))

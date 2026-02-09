@@ -118,6 +118,9 @@ export default {
   longhornUseAllDisks: (nodeName) => ws.request('longhorn.use_all_disks', { node_name: nodeName }),
   longhornAutoConfig: (params) => ws.request('longhorn.auto_config', params),
 
+  // --- Metrics ---
+  getMetrics: () => ws.request('metrics.get'),
+
   // --- CI/CD Runners ---
   cicdFull: () => ws.request('cicd.full'),
   cicdOverview: () => ws.request('cicd.overview'),

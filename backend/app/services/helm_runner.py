@@ -128,6 +128,17 @@ class HelmRunner:
             return False, combined or "Unknown error"
         return True, combined
 
+    async def force_uninstall(self, release_name: str, namespace: str) -> Tuple[bool, str]:
+        """Quick uninstall without --wait and a short timeout. Best-effort for force delete."""
+        rc, out, err = await self._run_helm(
+            ["uninstall", release_name, "--namespace", namespace, "--no-hooks"],
+            timeout=15,
+        )
+        combined = (out.strip() + "\n" + err.strip()).strip()
+        if rc != 0:
+            return False, combined or "Unknown error"
+        return True, combined
+
     async def get_status(self, release_name: str, namespace: str) -> Optional[dict]:
         rc, out, err = await self._run_helm(["status", release_name, "--namespace", namespace, "-o", "json"])
         if rc != 0:

@@ -123,7 +123,7 @@
                 readonly
                 class="w-full p-2 border border-gray-200 rounded text-base bg-gray-50 text-gray-600 cursor-not-allowed font-mono text-sm"
               />
-              <small class="block mt-1 text-gray-500 text-sm">Auto-managed by <router-link to="/talos-settings" class="text-blue-500 no-underline hover:underline">Talos Settings</router-link> — generated from selected extensions via Factory API</small>
+              <small class="block mt-1 text-gray-500 text-sm">Auto-managed by <router-link to="/talos" class="text-blue-500 no-underline hover:underline">Talos Settings</router-link> — generated from selected extensions via Factory API</small>
             </div>
           </div>
         </div>
