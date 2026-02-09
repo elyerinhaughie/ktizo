@@ -37,6 +37,17 @@
             <option value="created_volume_config">Created Volume Config</option>
             <option value="updated_volume_config">Updated Volume Config</option>
             <option value="deleted_volume_config">Deleted Volume Config</option>
+            <option value="created_rbac_user">Created RBAC User</option>
+            <option value="created_service_account">Created Service Account</option>
+            <option value="deleted_service_account">Deleted Service Account</option>
+            <option value="created_role">Created Role</option>
+            <option value="deleted_role">Deleted Role</option>
+            <option value="created_cluster_role">Created Cluster Role</option>
+            <option value="deleted_cluster_role">Deleted Cluster Role</option>
+            <option value="created_role_binding">Created Role Binding</option>
+            <option value="deleted_role_binding">Deleted Role Binding</option>
+            <option value="created_cluster_role_binding">Created Cluster Role Binding</option>
+            <option value="deleted_cluster_role_binding">Deleted Cluster Role Binding</option>
           </select>
         </div>
       </div>
@@ -129,6 +140,17 @@ const ACTION_LABELS = {
   created_volume_config: 'Created Volume Config',
   updated_volume_config: 'Updated Volume Config',
   deleted_volume_config: 'Deleted Volume Config',
+  created_rbac_user: 'Created RBAC User',
+  created_service_account: 'Created Service Account',
+  deleted_service_account: 'Deleted Service Account',
+  created_role: 'Created Role',
+  deleted_role: 'Deleted Role',
+  created_cluster_role: 'Created Cluster Role',
+  deleted_cluster_role: 'Deleted Cluster Role',
+  created_role_binding: 'Created Role Binding',
+  deleted_role_binding: 'Deleted Role Binding',
+  created_cluster_role_binding: 'Created Cluster Role Binding',
+  deleted_cluster_role_binding: 'Deleted Cluster Role Binding',
 }
 
 export default {

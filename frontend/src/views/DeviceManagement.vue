@@ -113,11 +113,12 @@
               </div>
               <div class="shrink-0">
                 <span class="text-xs text-gray-400 uppercase tracking-wide block leading-none mb-1">MAC</span>
-                <span class="font-mono text-sm text-gray-600">{{ device.mac_address }}</span>
+                <span class="font-mono text-sm text-gray-600 cursor-pointer hover:text-indigo-600 transition-colors" @click="copyToClipboard(device.mac_address, 'MAC address')">{{ device.mac_address }}</span>
               </div>
               <div class="shrink-0">
                 <span class="text-xs text-gray-400 uppercase tracking-wide block leading-none mb-1">IP</span>
-                <span class="font-mono text-sm text-gray-600">{{ device.ip_address || '-' }}</span>
+                <span v-if="device.ip_address" class="font-mono text-sm text-gray-600 cursor-pointer hover:text-indigo-600 transition-colors" @click="copyToClipboard(device.ip_address, 'IP address')">{{ device.ip_address }}</span>
+                <span v-else class="font-mono text-sm text-gray-600">-</span>
               </div>
               <span class="px-3 py-1 rounded-xl text-sm font-medium capitalize ml-auto shrink-0" :class="{
                 'bg-amber-100 text-amber-800': device.status === 'pending',
@@ -1270,6 +1271,13 @@ export default {
         }
       }
       return null
+    },
+    copyToClipboard(text, label) {
+      navigator.clipboard.writeText(text).then(() => {
+        this.toast.info(`${label} copied to clipboard`, { timeout: 2000 })
+      }).catch(() => {
+        this.toast.error('Failed to copy to clipboard')
+      })
     },
     resourceBarClass(percent) {
       if (percent >= 90) return 'bg-red-500'

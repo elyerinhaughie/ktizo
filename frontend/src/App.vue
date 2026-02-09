@@ -36,6 +36,10 @@
           <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'desktop']" /></span>
           <span class="text-[0.95rem]">Device Management</span>
         </router-link>
+        <router-link to="/rbac" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'shield-halved']" /></span>
+          <span class="text-[0.95rem]">RBAC</span>
+        </router-link>
         <router-link to="/terminal" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
           <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'terminal']" /></span>
           <span class="text-[0.95rem]">Terminal</span>

@@ -131,6 +131,28 @@ export default {
   getAuditLogs: (params) => ws.request('audit.list', params || {}),
   clearAuditLogs: () => ws.request('audit.clear'),
 
+  // --- RBAC ---
+  rbacNamespaces: () => ws.request('rbac.namespaces'),
+  rbacServiceAccounts: (params) => ws.request('rbac.serviceaccounts.list', params || {}),
+  rbacCreateServiceAccount: (params) => ws.request('rbac.serviceaccounts.create', params),
+  rbacDeleteServiceAccount: (params) => ws.request('rbac.serviceaccounts.delete', params),
+  rbacRoles: (params) => ws.request('rbac.roles.list', params || {}),
+  rbacGetRole: (params) => ws.request('rbac.roles.get', params),
+  rbacCreateRole: (params) => ws.request('rbac.roles.create', params),
+  rbacDeleteRole: (params) => ws.request('rbac.roles.delete', params),
+  rbacClusterRoles: (params) => ws.request('rbac.clusterroles.list', params || {}),
+  rbacGetClusterRole: (params) => ws.request('rbac.clusterroles.get', params),
+  rbacCreateClusterRole: (params) => ws.request('rbac.clusterroles.create', params),
+  rbacDeleteClusterRole: (params) => ws.request('rbac.clusterroles.delete', params),
+  rbacRoleBindings: (params) => ws.request('rbac.rolebindings.list', params || {}),
+  rbacCreateRoleBinding: (params) => ws.request('rbac.rolebindings.create', params),
+  rbacDeleteRoleBinding: (params) => ws.request('rbac.rolebindings.delete', params),
+  rbacClusterRoleBindings: (params) => ws.request('rbac.clusterrolebindings.list', params || {}),
+  rbacCreateClusterRoleBinding: (params) => ws.request('rbac.clusterrolebindings.create', params),
+  rbacDeleteClusterRoleBinding: (params) => ws.request('rbac.clusterrolebindings.delete', params),
+  rbacPresets: () => ws.request('rbac.presets.list'),
+  rbacWizardCreate: (params) => ws.request('rbac.wizard.create', params),
+
   // --- Troubleshooting ---
   troubleshootStatus: () => ws.request('troubleshoot.status'),
   troubleshootFixKubeconfig: () => ws.request('troubleshoot.fix_kubeconfig'),

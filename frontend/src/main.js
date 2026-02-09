@@ -15,7 +15,7 @@ import {
   faChevronDown, faChevronRight, faSliders, faPowerOff, faBolt, faMicrochip,
   faCubes, faLock, faCodeBranch, faCube, faArrowsRotate, faClock, faDatabase,
   faWrench, faStethoscope, faRotate, faFileLines, faArrowUpRightFromSquare,
-  faPlay, faLayerGroup
+  faPlay, faLayerGroup, faShieldHalved, faUserShield, faDiagramProject
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -27,7 +27,7 @@ library.add(
   faChevronDown, faChevronRight, faSliders, faPowerOff, faBolt, faMicrochip,
   faCubes, faLock, faCodeBranch, faCube, faArrowsRotate, faClock, faDatabase,
   faWrench, faStethoscope, faRotate, faFileLines, faArrowUpRightFromSquare,
-  faPlay, faLayerGroup
+  faPlay, faLayerGroup, faShieldHalved, faUserShield, faDiagramProject
 )
 
 import themeService from './services/theme'
@@ -60,6 +60,7 @@ const routes = [
   { path: '/modules/cluster', name: 'ModulesCluster', component: Modules },
   { path: '/modules/applications', name: 'ModulesApplications', component: Modules },
   { path: '/longhorn', name: 'LonghornManagement', component: LonghornManagement },
+  { path: '/rbac', name: 'RbacManagement', component: () => import('./views/RbacManagement.vue') },
   { path: '/cicd', name: 'CiCdRunners', component: () => import('./views/CiCdRunners.vue') },
   { path: '/wiki', name: 'Wiki', component: Wiki },
   { path: '/terminal', name: 'Terminal', component: Terminal },
