@@ -11,6 +11,10 @@ class DeviceBase(BaseModel):
     role: DeviceRole = Field(default=DeviceRole.WORKER, description="Role in cluster (controlplane or worker)")
     notes: Optional[str] = Field(None, description="Additional notes about the device")
     wipe_on_next_boot: Optional[bool] = Field(False, description="If True, device will be wiped/reinstalled on next boot")
+    install_disk: Optional[str] = Field(None, description="Install disk override (e.g. /dev/sda). None = use global default.")
+    ephemeral_min_size: Optional[str] = Field(None, description="EPHEMERAL min size override (e.g. 2GB). None = use global default.")
+    ephemeral_max_size: Optional[str] = Field(None, description="EPHEMERAL max size override (e.g. 100GB). None = use global default.")
+    ephemeral_disk_selector: Optional[str] = Field(None, description="EPHEMERAL disk selector CEL override. None = use global default.")
 
 class DeviceCreate(DeviceBase):
     """Schema for creating a device"""
@@ -25,6 +29,10 @@ class DeviceUpdate(BaseModel):
     status: Optional[DeviceStatus] = None
     notes: Optional[str] = None
     wipe_on_next_boot: Optional[bool] = None
+    install_disk: Optional[str] = None
+    ephemeral_min_size: Optional[str] = None
+    ephemeral_max_size: Optional[str] = None
+    ephemeral_disk_selector: Optional[str] = None
 
 class DeviceResponse(DeviceBase):
     """Schema for device response"""
@@ -44,6 +52,10 @@ class DeviceApprovalRequest(BaseModel):
     hostname: str = Field(..., description="Hostname for the device")
     ip_address: str = Field(..., description="IP address to assign")
     role: DeviceRole = Field(..., description="Role in cluster (controlplane or worker)")
+    install_disk: Optional[str] = Field(None, description="Install disk override. None = use global default.")
+    ephemeral_min_size: Optional[str] = Field(None, description="EPHEMERAL min size override. None = use global default.")
+    ephemeral_max_size: Optional[str] = Field(None, description="EPHEMERAL max size override. None = use global default.")
+    ephemeral_disk_selector: Optional[str] = Field(None, description="EPHEMERAL disk selector CEL override. None = use global default.")
 
 class ConfigDownloadRequest(BaseModel):
     """Request from device to download config"""

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Response, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.device import (
@@ -11,14 +11,20 @@ from app.schemas.device import (
 from app.crud import device as device_crud
 from app.crud import cluster as cluster_crud
 from app.crud import network as network_crud
+from app.crud import volume as volume_crud
 from app.db.models import DeviceStatus, DeviceRole, Device
 from app.services.config_generator import ConfigGenerator
 from app.services.ipxe_generator import IPXEGenerator
 from app.services.websocket_manager import websocket_manager
 from app.utils.network import get_next_available_ip, get_first_usable_ip, is_fqdn
+from app.services.audit_service import log_action
 from typing import List, Optional
 from pathlib import Path
 import yaml
+import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 config_generator = ConfigGenerator()
@@ -103,6 +109,11 @@ async def update_device(device_id: int, device: DeviceUpdate, db: Session = Depe
     updated = device_crud.update_device(db, device_id, device)
     if not updated:
         raise HTTPException(status_code=404, detail="Device not found")
+
+    await log_action(db, "updated_device", "Device Management",
+        json.dumps({"mac": updated.mac_address, "hostname": updated.hostname, "changes": device.dict(exclude_unset=True)}),
+        "device", str(device_id))
+
     return updated
 
 @router.get("/devices/{device_id}/approval-suggestions")
@@ -186,6 +197,19 @@ async def get_approval_suggestions(device_id: int, db: Session = Depends(get_db)
                            if d.status == DeviceStatus.APPROVED])
         suggested_hostname = f"node-{device_count + 1:02d}"
 
+    # Get storage defaults
+    storage_defaults = {
+        "install_disk": cluster_settings.install_disk if cluster_settings else "/dev/sda",
+        "ephemeral_min_size": None,
+        "ephemeral_max_size": None,
+        "ephemeral_disk_selector": None
+    }
+    ephemeral_config = volume_crud.get_volume_config_by_name(db, "EPHEMERAL")
+    if ephemeral_config:
+        storage_defaults["ephemeral_min_size"] = ephemeral_config.min_size
+        storage_defaults["ephemeral_max_size"] = ephemeral_config.max_size
+        storage_defaults["ephemeral_disk_selector"] = ephemeral_config.disk_selector_match
+
     return {
         "device_id": device_id,
         "mac_address": device.mac_address,
@@ -203,7 +227,8 @@ async def get_approval_suggestions(device_id: int, db: Session = Depends(get_db)
             "ip_address": ip_reason,
             "role": role_reason
         },
-        "subnet": external_subnet
+        "subnet": external_subnet,
+        "storage_defaults": storage_defaults
     }
 
 @router.post("/devices/{device_id}/approve", response_model=DeviceResponse)
@@ -275,6 +300,10 @@ async def approve_device(device_id: int, approval_data: DeviceApprovalRequest, d
     device.hostname = approval_data.hostname
     device.ip_address = approval_data.ip_address
     device.role = approval_data.role
+    device.install_disk = approval_data.install_disk
+    device.ephemeral_min_size = approval_data.ephemeral_min_size
+    device.ephemeral_max_size = approval_data.ephemeral_max_size
+    device.ephemeral_disk_selector = approval_data.ephemeral_disk_selector
     db.commit()
 
     # Now approve the device
@@ -303,6 +332,10 @@ async def approve_device(device_id: int, approval_data: DeviceApprovalRequest, d
         "device_id": device_id
     })
 
+    await log_action(db, "approved_device", "Device Management",
+        json.dumps({"mac": device.mac_address, "hostname": device.hostname, "role": device.role.value, "ip": device.ip_address}),
+        "device", str(device_id))
+
     return device
 
 @router.post("/devices/{device_id}/reject", response_model=DeviceResponse)
@@ -318,11 +351,26 @@ async def reject_device(device_id: int, db: Session = Depends(get_db)):
         "device_id": device_id
     })
 
+    await log_action(db, "rejected_device", "Device Management",
+        json.dumps({"mac": device.mac_address}), "device", str(device_id))
+
     return device
 
 @router.delete("/devices/{device_id}")
 async def delete_device(device_id: int, db: Session = Depends(get_db)):
     """Delete a device"""
+    device = device_crud.get_device(db, device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    mac = device.mac_address
+    hostname = device.hostname
+
+    # Remove the Kubernetes node object before deleting the device record
+    if device.status == DeviceStatus.APPROVED and hostname:
+        from app.services.kubectl_runner import kubectl_delete_node
+        ok, msg = kubectl_delete_node(hostname)
+        logger.info(f"kubectl delete node {hostname}: {msg}")
+
     success = device_crud.delete_device(db, device_id)
     if not success:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -332,6 +380,9 @@ async def delete_device(device_id: int, db: Session = Depends(get_db)):
         "type": "device_deleted",
         "device_id": device_id
     })
+
+    await log_action(db, "deleted_device", "Device Management",
+        json.dumps({"mac": mac, "hostname": hostname}), "device", str(device_id))
 
     return {"message": "Device deleted successfully"}
 
@@ -612,20 +663,93 @@ async def get_recent_events(since: Optional[int] = None, db: Session = Depends(g
     return {"events": events}
 
 
-@router.websocket("/events/ws")
-async def websocket_events(websocket: WebSocket):
-    """
-    WebSocket endpoint for real-time device event notifications.
+@router.post("/devices/rolling-refresh")
+async def start_rolling_refresh(
+    mode: str = "sequential",
+    parallelism: int = 2,
+    db: Session = Depends(get_db),
+):
+    """Start a rolling refresh of all approved worker nodes.
 
-    Clients connect to this endpoint to receive real-time updates about:
-    - New devices discovered
-    - Configuration downloads
+    Modes: sequential (one at a time), parallel (N at a time), all_at_once (no drain).
     """
-    await websocket_manager.connect(websocket)
-    try:
-        # Keep connection alive and handle incoming messages
-        while True:
-            # Wait for any message from client (ping/pong)
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        websocket_manager.disconnect(websocket)
+    from app.api.ws_handler import (
+        _rolling_refresh_active,
+        _do_sequential_refresh,
+        _do_concurrent_refresh,
+    )
+    import asyncio as _asyncio
+
+    if _rolling_refresh_active:
+        raise HTTPException(status_code=409, detail="A rolling refresh is already in progress")
+    if mode not in ("sequential", "parallel", "all_at_once"):
+        raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}")
+
+    workers = [
+        d for d in device_crud.get_devices(db, skip=0, limit=1000)
+        if d.status == DeviceStatus.APPROVED
+        and d.role == DeviceRole.WORKER
+        and d.ip_address
+    ]
+    if not workers:
+        raise HTTPException(status_code=400, detail="No approved worker nodes with IP addresses found")
+
+    device_list = []
+    for d in workers:
+        ip = d.ip_address.split("/")[0] if "/" in d.ip_address else d.ip_address
+        device_list.append({
+            "id": d.id,
+            "hostname": d.hostname or d.mac_address,
+            "mac_address": d.mac_address,
+            "ip_address": ip,
+        })
+
+    import app.api.ws_handler as wsh
+    wsh._rolling_refresh_active = True
+    wsh._rolling_refresh_cancel = False
+    wsh._rolling_refresh_state = {
+        "total": len(device_list),
+        "mode": mode,
+        "parallelism": parallelism if mode == "parallel" else (len(device_list) if mode == "all_at_once" else 1),
+        "node_states": {i: {"device": d, "step": "pending", "message": "Waiting..."} for i, d in enumerate(device_list)},
+        "succeeded": 0,
+        "failed": 0,
+    }
+
+    await log_action(db, "rolling_refresh_started", "Device Management",
+        json.dumps({"count": len(device_list), "mode": mode, "devices": [d["hostname"] for d in device_list]}),
+        "device", "rolling_refresh")
+
+    if mode == "sequential":
+        _asyncio.create_task(_do_sequential_refresh(device_list))
+    elif mode == "parallel":
+        _asyncio.create_task(_do_concurrent_refresh(device_list, parallelism))
+    elif mode == "all_at_once":
+        _asyncio.create_task(_do_concurrent_refresh(device_list, len(device_list), skip_drain=True))
+
+    return {
+        "message": f"Rolling refresh started for {len(device_list)} worker node(s) — {mode}",
+        "devices": device_list,
+        "mode": mode,
+    }
+
+
+@router.get("/devices/rolling-refresh/status")
+async def rolling_refresh_status():
+    """Get current rolling refresh status."""
+    import app.api.ws_handler as wsh
+    return {
+        "active": wsh._rolling_refresh_active,
+        **wsh._rolling_refresh_state,
+    }
+
+
+@router.post("/devices/rolling-refresh/cancel")
+async def cancel_rolling_refresh():
+    """Cancel a rolling refresh after the current node(s) complete."""
+    import app.api.ws_handler as wsh
+    if not wsh._rolling_refresh_active:
+        raise HTTPException(status_code=400, detail="No rolling refresh in progress")
+    wsh._rolling_refresh_cancel = True
+    return {"message": "Cancellation requested — will stop after current node(s)"}
+

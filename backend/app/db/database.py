@@ -35,7 +35,7 @@ def get_db():
 
 def init_db():
     """Initialize database tables and run migrations"""
-    from app.db.models import NetworkSettings, ClusterSettings, Device
+    from app.db.models import NetworkSettings, ClusterSettings, Device, HelmRelease, HelmRepository
     from app.db.migrate import migrate_database
 
     # Create tables if they don't exist

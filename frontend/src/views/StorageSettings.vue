@@ -1,34 +1,73 @@
 <template>
-  <div class="storage-settings">
-    <div class="header">
-      <h2>Storage Settings</h2>
-      <p class="subtitle">Configure disk space allocation for Talos system partitions</p>
+  <div class="max-w-[1400px] mx-auto">
+    <div class="flex items-center justify-between mb-8 sticky top-0 z-10 bg-[var(--th-bg-page,#f3f4f6)] -mx-8 px-8 py-4">
+      <div>
+        <h2 class="text-2xl font-bold text-gray-900 m-0">Default Storage Settings</h2>
+        <p class="text-gray-500 mt-1 mb-0">Configure default disk space allocation for Talos system partitions</p>
+      </div>
+      <button @click="saveAll" class="bg-[#42b983] text-white py-2.5 px-6 border-none rounded text-sm font-medium cursor-pointer transition-colors duration-300 hover:bg-[#35a372] disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap" :disabled="loading || saving">
+        {{ saving ? 'Saving...' : 'Save & Apply' }}
+      </button>
     </div>
 
-    <div class="content-wrapper">
-      <aside class="toc">
-        <h3>Table of Contents</h3>
+    <div class="bg-blue-50 border-l-4 border-blue-500 rounded-md p-4 mb-8 text-[0.9rem] leading-relaxed">
+      <strong class="block text-blue-800 mb-2 text-[0.95rem]"><font-awesome-icon :icon="['fas', 'circle-info']" /> These are default settings</strong>
+      <p class="m-0 mt-2 text-gray-700">
+        These storage settings serve as defaults for newly approved devices. You can override
+        them on a per-device basis when approving or editing a device in
+        <router-link to="/devices" class="text-blue-600 underline font-medium hover:text-blue-800">Device Management</router-link>.
+      </p>
+    </div>
+
+    <div class="flex gap-8 items-start">
+      <aside class="sticky top-24 w-[250px] shrink-0 bg-white p-6 rounded-lg shadow-md max-h-[calc(100vh-7rem)] overflow-y-auto">
+        <h3 class="mt-0 mb-4 text-sidebar-dark text-lg border-b-2 border-[#42b983] pb-2">Table of Contents</h3>
         <nav>
-          <ul>
-            <li><a href="#overview" @click.prevent="scrollTo('overview')">Overview</a></li>
-            <li><a href="#install-disk" @click.prevent="scrollTo('install-disk')">Installation Disk</a></li>
-            <li><a href="#ephemeral-config" @click.prevent="scrollTo('ephemeral-config')">EPHEMERAL Storage</a></li>
-            <li><a href="#advanced" @click.prevent="scrollTo('advanced')">Advanced Options</a></li>
+          <ul class="list-none p-0 m-0">
+            <li class="mb-2">
+              <a href="#overview" @click.prevent="scrollTo('overview')" class="text-gray-500 no-underline text-[0.9rem] block py-1 transition-colors duration-200 hover:text-[#42b983]">Overview</a>
+              <ul class="list-none p-0 m-0 ml-3 mt-1 border-l border-gray-200 pl-2">
+                <li><a href="#disk-layout" @click.prevent="scrollTo('disk-layout')" class="text-gray-400 no-underline text-[0.8rem] block py-0.5 transition-colors duration-200 hover:text-[#42b983]">Disk Layout</a></li>
+              </ul>
+            </li>
+            <li class="mb-2">
+              <a href="#install-disk" @click.prevent="scrollTo('install-disk')" class="text-gray-500 no-underline text-[0.9rem] block py-1 transition-colors duration-200 hover:text-[#42b983]">Installation Disk</a>
+              <ul class="list-none p-0 m-0 ml-3 mt-1 border-l border-gray-200 pl-2">
+                <li><a href="#install-disk-device" @click.prevent="scrollTo('install-disk-device')" class="text-gray-400 no-underline text-[0.8rem] block py-0.5 transition-colors duration-200 hover:text-[#42b983]">Disk Device</a></li>
+              </ul>
+            </li>
+            <li class="mb-2">
+              <a href="#ephemeral-config" @click.prevent="scrollTo('ephemeral-config')" class="text-gray-500 no-underline text-[0.9rem] block py-1 transition-colors duration-200 hover:text-[#42b983]">EPHEMERAL Storage</a>
+              <ul class="list-none p-0 m-0 ml-3 mt-1 border-l border-gray-200 pl-2">
+                <li><a href="#ephemeral-limit" @click.prevent="scrollTo('ephemeral-limit')" class="text-gray-400 no-underline text-[0.8rem] block py-0.5 transition-colors duration-200 hover:text-[#42b983]">Size Limit</a></li>
+                <li><a href="#ephemeral-max" @click.prevent="scrollTo('ephemeral-max')" class="text-gray-400 no-underline text-[0.8rem] block py-0.5 transition-colors duration-200 hover:text-[#42b983]">Max / Min Size</a></li>
+              </ul>
+            </li>
+            <li class="mb-2">
+              <a href="#advanced" @click.prevent="scrollTo('advanced')" class="text-gray-500 no-underline text-[0.9rem] block py-1 transition-colors duration-200 hover:text-[#42b983]">Advanced Options</a>
+              <ul class="list-none p-0 m-0 ml-3 mt-1 border-l border-gray-200 pl-2">
+                <li><a href="#disk-selector" @click.prevent="scrollTo('disk-selector')" class="text-gray-400 no-underline text-[0.8rem] block py-0.5 transition-colors duration-200 hover:text-[#42b983]">Disk Selector</a></li>
+              </ul>
+            </li>
           </ul>
         </nav>
       </aside>
 
-      <div class="form-container">
-        <div v-if="loading" class="loading">Loading storage configuration...</div>
+      <div class="bg-white p-8 rounded-lg shadow-md flex-1 min-w-0">
+        <div v-if="loading" class="text-center py-12 text-gray-500">Loading storage configuration...</div>
 
-        <div v-else>
+        <form v-else @submit.prevent="saveAll">
           <!-- Overview Section -->
-          <div class="section" id="overview">
-            <h3>📊 Understanding Talos Disk Layout</h3>
+          <div id="overview" class="mb-8 pb-8 border-b border-gray-200 scroll-mt-24">
+            <h3 class="text-sidebar-dark mb-1 text-xl">Overview</h3>
+            <p class="text-gray-500 text-sm mb-4">
+              Understanding how Talos partitions disks and why you might want to limit EPHEMERAL size.
+              <router-link to="/wiki#storage-config" class="text-blue-500 no-underline hover:underline ml-1">Learn more</router-link>
+            </p>
 
-            <div class="info-box">
-              <strong>What is this page for?</strong>
-              <p>
+            <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-md">
+              <strong class="text-blue-800 block mb-2 text-[0.95rem]">What is this page for?</strong>
+              <p class="text-gray-700 m-0 text-[0.9rem] leading-relaxed">
                 When Talos installs on a machine, it automatically creates several partitions on your disk.
                 By default, the <strong>EPHEMERAL</strong> partition will consume all remaining disk space.
                 This page lets you <strong>limit how much space</strong> Talos uses, leaving room for other
@@ -36,34 +75,34 @@
               </p>
             </div>
 
-            <div class="disk-layout-diagram">
-              <h4>Default Talos Disk Layout (Automatic)</h4>
-              <div class="partition-viz">
-                <div class="partition partition-efi" title="EFI Boot Partition">
+            <div id="disk-layout" class="my-6 p-4 bg-gray-50 rounded-lg scroll-mt-24">
+              <h4 class="text-gray-600 mb-4 text-base">Default Talos Disk Layout (Automatic)</h4>
+              <div class="flex h-[60px] rounded overflow-hidden shadow-sm my-4">
+                <div class="flex flex-col items-center justify-center text-white font-semibold text-sm relative bg-indigo-500 basis-[80px] shrink-0 grow-0" data-tooltip="EFI Boot Partition">
                   <span>EFI</span>
-                  <small>~100MB</small>
+                  <small class="text-[0.7rem] font-normal opacity-90">~100MB</small>
                 </div>
-                <div class="partition partition-meta" title="Metadata">
+                <div class="flex flex-col items-center justify-center text-white font-semibold text-sm relative bg-violet-500 basis-[40px] shrink-0 grow-0" data-tooltip="Metadata">
                   <span>META</span>
-                  <small>~1MB</small>
+                  <small class="text-[0.7rem] font-normal opacity-90">~1MB</small>
                 </div>
-                <div class="partition partition-state" title="System State">
+                <div class="flex flex-col items-center justify-center text-white font-semibold text-sm relative bg-pink-500 basis-[80px] shrink-0 grow-0" data-tooltip="System State">
                   <span>STATE</span>
-                  <small>~100MB</small>
+                  <small class="text-[0.7rem] font-normal opacity-90">~100MB</small>
                 </div>
-                <div class="partition partition-ephemeral" title="Container Data, Images, Logs">
+                <div class="flex flex-col items-center justify-center text-white font-semibold text-sm relative bg-amber-500 flex-1" data-tooltip="Container Data, Images, Logs">
                   <span>EPHEMERAL</span>
-                  <small>Rest of disk</small>
+                  <small class="text-[0.7rem] font-normal opacity-90">Rest of disk</small>
                 </div>
               </div>
-              <p class="diagram-note">
+              <p class="text-sm text-gray-500 mt-2 italic">
                 <strong>EPHEMERAL</strong> stores: Container data, downloaded images, logs, and etcd database (on control planes)
               </p>
             </div>
 
-            <div class="warning-box" style="margin-top: 1rem;">
-              <strong>🎯 Why limit EPHEMERAL?</strong>
-              <p>
+            <div class="bg-amber-50 border-l-4 border-amber-500 rounded p-4 text-[0.9rem] leading-normal mt-4">
+              <strong class="block text-amber-800 mb-2"><font-awesome-icon :icon="['fas', 'circle-info']" /> Why limit EPHEMERAL?</strong>
+              <p class="text-amber-900 m-0">
                 If you plan to use storage solutions like <strong>Rook/Ceph</strong>, they need unpartitioned
                 space on the disk. By limiting EPHEMERAL to a specific size (e.g., 100GB), you leave the
                 remaining disk space available for Rook/Ceph to claim as Object Storage Devices (OSDs).
@@ -72,164 +111,121 @@
           </div>
 
           <!-- Installation Disk Section -->
-          <div class="section" id="install-disk">
-            <h3>💿 Installation Disk Configuration</h3>
+          <div id="install-disk" class="mb-8 pb-8 border-b border-gray-200 scroll-mt-24">
+            <h3 class="text-sidebar-dark mb-1 text-xl">Installation Disk</h3>
+            <p class="text-gray-500 text-sm mb-4">
+              The target disk device where Talos Linux will be installed.
+              <router-link to="/wiki#storage-config" class="text-blue-500 no-underline hover:underline ml-1">Learn more</router-link>
+            </p>
 
-            <form @submit.prevent="saveClusterSettings">
-              <div class="form-group">
-                <label>Install Disk *</label>
-                <input
-                  v-model="clusterSettings.install_disk"
-                  type="text"
-                  required
-                  placeholder="/dev/sda"
-                  :disabled="loading"
-                />
-                <div class="info-box" style="margin-top: 0.5rem;">
-                  <strong>What is this?</strong>
-                  <p>
-                    This is the disk device where Talos Linux will be installed. Talos will automatically
-                    partition this disk and create the EFI, META, STATE, and EPHEMERAL partitions.
-                  </p>
-                  <p>
-                    <strong>Common device names:</strong>
-                  </p>
-                  <ul>
-                    <li><code>/dev/sda</code> - First SATA/SCSI disk</li>
-                    <li><code>/dev/nvme0n1</code> - First NVMe disk</li>
-                    <li><code>/dev/vda</code> - First virtio disk (virtual machines)</li>
-                  </ul>
-                  <p>
-                    <strong>How to find your disk:</strong> When a device boots via PXE, check the device discovery
-                    information or boot into a live environment and run <code>lsblk</code> to list available disks.
-                  </p>
-                  <p>
-                    <strong>⚠️ Warning:</strong> The installation process will <strong>wipe all data</strong>
-                    on this disk. Make sure you select the correct device!
-                  </p>
-                </div>
+            <div id="install-disk-device" class="mb-4 scroll-mt-24">
+              <label class="block mb-2 text-sidebar-dark font-medium">Install Disk *</label>
+              <input
+                v-model="clusterSettings.install_disk"
+                type="text"
+                required
+                placeholder="/dev/sda"
+                :disabled="loading"
+                class="w-full max-w-sm p-2 border border-gray-300 rounded text-base disabled:bg-gray-100 disabled:cursor-not-allowed"
+              />
+              <small class="block mt-1 text-gray-500 text-sm">
+                Common devices: <code class="bg-gray-100 px-1 py-0.5 rounded font-mono text-[0.85em] text-pink-600">/dev/sda</code> (SATA),
+                <code class="bg-gray-100 px-1 py-0.5 rounded font-mono text-[0.85em] text-pink-600">/dev/nvme0n1</code> (NVMe),
+                <code class="bg-gray-100 px-1 py-0.5 rounded font-mono text-[0.85em] text-pink-600">/dev/vda</code> (virtio)
+              </small>
+              <div class="mt-3 p-4 bg-amber-50 border-l-4 border-orange-500 rounded text-[0.9rem] leading-relaxed text-amber-800">
+                <strong class="text-red-800"><font-awesome-icon :icon="['fas', 'triangle-exclamation']" /> Warning:</strong>
+                The installation process will <strong>wipe all data</strong> on this disk. Make sure you select the correct device.
               </div>
-
-              <div class="form-actions">
-                <button type="submit" class="save-btn" :disabled="loading">
-                  {{ loading ? 'Saving...' : 'Save Disk Configuration' }}
-                </button>
-              </div>
-            </form>
+            </div>
           </div>
 
           <!-- EPHEMERAL Configuration Section -->
-          <div class="section" id="ephemeral-config">
-            <h3>💾 EPHEMERAL Storage Configuration</h3>
+          <div id="ephemeral-config" class="mb-8 pb-8 border-b border-gray-200 scroll-mt-24">
+            <h3 class="text-sidebar-dark mb-1 text-xl">EPHEMERAL Storage</h3>
+            <p class="text-gray-500 text-sm mb-4">
+              Control how much disk space the EPHEMERAL partition consumes.
+              <router-link to="/wiki#storage-config" class="text-blue-500 no-underline hover:underline ml-1">Learn more</router-link>
+            </p>
 
-            <form @submit.prevent="saveEphemeralConfig">
-              <div class="form-group">
-                <label>
+            <div id="ephemeral-limit" class="mb-4 scroll-mt-24">
+              <label class="flex! items-center gap-2 cursor-pointer">
+                <input type="checkbox" v-model="ephemeralConfig.enabled" class="w-auto m-0 cursor-pointer" />
+                <span class="font-medium">Limit EPHEMERAL partition size</span>
+              </label>
+              <small class="block mt-2 text-gray-500 text-sm leading-normal">Enable to prevent EPHEMERAL from using the entire disk</small>
+            </div>
+
+            <div id="ephemeral-max" v-if="ephemeralConfig.enabled" class="bg-gray-50 p-6 rounded-lg mt-4 scroll-mt-24">
+              <div class="grid grid-cols-2 gap-4">
+                <div class="mb-2">
+                  <label class="block mb-2 text-sidebar-dark font-medium">Maximum Size *</label>
                   <input
-                    type="checkbox"
-                    v-model="ephemeralConfig.enabled"
+                    v-model="ephemeralConfig.maxSize"
+                    type="text"
+                    required
+                    placeholder="e.g., 100GB"
+                    :disabled="loading"
+                    class="w-full p-2 border border-gray-300 rounded text-base disabled:bg-gray-100 disabled:cursor-not-allowed"
                   />
-                  Limit EPHEMERAL partition size
-                </label>
-                <small>Enable to prevent EPHEMERAL from using the entire disk</small>
-              </div>
-
-              <div v-if="ephemeralConfig.enabled" class="config-panel">
-                <div class="form-group">
-                  <label>Maximum Size *</label>
-                  <div class="size-input-group">
-                    <input
-                      v-model="ephemeralConfig.maxSize"
-                      type="text"
-                      required
-                      placeholder="e.g., 100GB"
-                      :disabled="loading"
-                    />
-                  </div>
-                  <div class="info-box" style="margin-top: 0.5rem;">
-                    <strong>How much space should I allocate?</strong>
-                    <p>
-                      <strong>Minimum recommended:</strong> 20GB for basic operations<br>
-                      <strong>Control Plane nodes:</strong> 50-100GB (needs space for etcd database)<br>
-                      <strong>Worker nodes:</strong> 50-200GB (depending on workload size)
-                    </p>
-                    <p>
-                      <strong>Format:</strong> Specify size with units: <code>20GB</code>, <code>100GB</code>, <code>500GB</code>, <code>1TB</code>
-                    </p>
-                    <p>
-                      <strong>Example calculation:</strong> If you have a 1TB disk and set max size to 100GB,
-                      you'll have ~900GB of unpartitioned space remaining for Rook/Ceph.
-                    </p>
-                  </div>
+                  <small class="block mt-1 text-gray-500 text-sm">Format: 20GB, 100GB, 500GB, 1TB</small>
                 </div>
-
-                <div class="form-group">
-                  <label>Minimum Size</label>
+                <div class="mb-2">
+                  <label class="block mb-2 text-sidebar-dark font-medium">Minimum Size</label>
                   <input
                     v-model="ephemeralConfig.minSize"
                     type="text"
                     placeholder="e.g., 2GB (default)"
                     :disabled="loading"
+                    class="w-full p-2 border border-gray-300 rounded text-base disabled:bg-gray-100 disabled:cursor-not-allowed"
                   />
-                  <small>Minimum space Talos will guarantee for EPHEMERAL (default: 2GB)</small>
+                  <small class="block mt-1 text-gray-500 text-sm">Minimum space Talos guarantees (default: 2GB)</small>
                 </div>
               </div>
-
-              <div v-if="!ephemeralConfig.enabled" class="info-box">
-                <strong>ℹ️ Default Behavior</strong>
-                <p>
-                  When unchecked, EPHEMERAL will automatically grow to use all available disk space.
-                  This is fine if you don't need space for other storage systems.
+              <div class="mt-4 p-4 bg-blue-50 border-l-4 border-blue-500 rounded-md text-[0.9rem] leading-relaxed">
+                <strong class="text-blue-800 block mb-2 text-[0.95rem]">Recommended sizes</strong>
+                <p class="text-gray-700 m-0">
+                  <strong>Control Plane:</strong> 50–100GB (etcd database) &nbsp;|&nbsp;
+                  <strong>Worker:</strong> 50–200GB (depending on workload)
                 </p>
               </div>
+            </div>
 
-              <div class="form-actions">
-                <button type="submit" class="save-btn" :disabled="loading">
-                  {{ loading ? 'Saving...' : 'Save Configuration' }}
-                </button>
-              </div>
-            </form>
+            <div v-if="!ephemeralConfig.enabled" class="mt-3 p-4 bg-blue-50 border-l-4 border-blue-500 rounded-md text-[0.9rem] leading-relaxed">
+              <strong class="text-blue-800 block mb-2 text-[0.95rem]"><font-awesome-icon :icon="['fas', 'circle-info']" /> Default Behavior</strong>
+              <p class="text-gray-700 m-0">
+                When unchecked, EPHEMERAL will automatically grow to use all available disk space.
+                This is fine if you don't need space for other storage systems.
+              </p>
+            </div>
           </div>
 
           <!-- Advanced Section -->
-          <div class="section" id="advanced">
-            <h3>⚙️ Advanced Options</h3>
+          <div id="advanced" class="mb-8 pb-8 border-b border-gray-200 scroll-mt-24">
+            <h3 class="text-sidebar-dark mb-1 text-xl">Advanced Options</h3>
+            <p class="text-gray-500 text-sm mb-4">
+              Fine-grained disk selection using CEL expressions.
+              <router-link to="/wiki#storage-config" class="text-blue-500 no-underline hover:underline ml-1">Learn more</router-link>
+            </p>
 
-            <div class="form-group">
-              <label>Disk Selector (CEL Expression)</label>
+            <div id="disk-selector" class="mb-4 scroll-mt-24">
+              <label class="block mb-2 text-sidebar-dark font-medium">Disk Selector (CEL Expression)</label>
               <input
                 v-model="ephemeralConfig.diskSelector"
                 type="text"
                 placeholder="e.g., disk.transport == 'nvme'"
                 :disabled="loading || !ephemeralConfig.enabled"
+                class="w-full max-w-sm p-2 border border-gray-300 rounded text-base disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
-              <div class="info-box" style="margin-top: 0.5rem;">
-                <strong>What is a Disk Selector?</strong>
-                <p>
-                  By default, Talos uses the installation disk (usually <code>/dev/sda</code>).
-                  If you have multiple disks, you can use a CEL (Common Expression Language) expression
-                  to select which disk to use for EPHEMERAL.
-                </p>
-                <p>
-                  <strong>Examples:</strong>
-                </p>
-                <ul>
-                  <li><code>disk.transport == 'nvme'</code> - Use NVMe drives</li>
-                  <li><code>disk.size > 500GB</code> - Use disks larger than 500GB</li>
-                  <li><code>disk.model == 'Samsung SSD'</code> - Use specific drive model</li>
-                </ul>
-                <p>
-                  <strong>⚠️ Leave empty unless you know what you're doing!</strong>
-                  Most users should leave this blank to use the default installation disk.
-                </p>
-              </div>
+              <small class="block mt-1 text-gray-500 text-sm">
+                Examples: <code class="bg-gray-100 px-1 py-0.5 rounded font-mono text-[0.85em] text-pink-600">disk.transport == 'nvme'</code>,
+                <code class="bg-gray-100 px-1 py-0.5 rounded font-mono text-[0.85em] text-pink-600">disk.size > 500GB</code>
+              </small>
+              <div v-if="!ephemeralConfig.enabled" class="mt-2 text-gray-400 text-sm italic">Enable EPHEMERAL size limit above to use disk selectors.</div>
             </div>
           </div>
-        </div>
+        </form>
 
-        <div v-if="message" :class="['message', messageType]">
-          {{ message }}
-        </div>
       </div>
     </div>
   </div>
@@ -237,12 +233,14 @@
 
 <script>
 import apiService from '../services/api'
+import { useToast } from 'vue-toastification'
 
 export default {
   name: 'StorageSettings',
   data() {
     return {
       loading: true,
+      saving: false,
       clusterSettings: {
         id: null,
         install_disk: '/dev/sda'
@@ -254,18 +252,24 @@ export default {
         diskSelector: ''
       },
       ephemeralConfigId: null,
-      message: null,
-      messageType: 'success'
     }
   },
   async mounted() {
+    this.toast = useToast()
     await this.loadConfiguration()
   },
   methods: {
+    scrollTo(id) {
+      const el = document.getElementById(id)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        el.classList.add('toc-highlight')
+        el.addEventListener('animationend', () => el.classList.remove('toc-highlight'), { once: true })
+      }
+    },
     async loadConfiguration() {
       this.loading = true
       try {
-        // Load cluster settings (for install disk)
         try {
           const cluster = await apiService.getClusterSettings()
           this.clusterSettings = {
@@ -273,12 +277,11 @@ export default {
             install_disk: cluster.install_disk || '/dev/sda'
           }
         } catch (error) {
-          if (error.response?.status !== 404) {
+          if (!error.message?.toLowerCase().includes('not found')) {
             console.error('Error loading cluster settings:', error)
           }
         }
 
-        // Try to load existing EPHEMERAL configuration
         const config = await apiService.getVolumeConfigByName('EPHEMERAL')
         this.ephemeralConfigId = config.id
         this.ephemeralConfig = {
@@ -288,418 +291,53 @@ export default {
           diskSelector: config.disk_selector_match || ''
         }
       } catch (error) {
-        // No configuration exists yet, use defaults
-        if (error.response?.status !== 404) {
+        if (!error.message?.toLowerCase().includes('not found')) {
           console.error('Error loading volume config:', error)
         }
       } finally {
         this.loading = false
       }
     },
-    async saveClusterSettings() {
-      this.loading = true
+    async saveAll() {
+      this.saving = true
       try {
-        const payload = {
-          install_disk: this.clusterSettings.install_disk
+        // Save install disk
+        const diskPayload = { install_disk: this.clusterSettings.install_disk }
+        if (this.clusterSettings.id) {
+          await apiService.updateClusterSettings(this.clusterSettings.id, diskPayload)
+        } else {
+          const created = await apiService.createClusterSettings(diskPayload)
+          this.clusterSettings.id = created.id
         }
 
-        if (this.clusterSettings.id) {
-          // Update existing settings
-          await apiService.updateClusterSettings(this.clusterSettings.id, payload)
-          this.showMessage('Installation disk configuration updated successfully', 'success')
-        } else {
-          // Create new settings (unlikely for this scenario but handle it)
-          const created = await apiService.createClusterSettings(payload)
-          this.clusterSettings.id = created.id
-          this.showMessage('Installation disk configuration created successfully', 'success')
-        }
-      } catch (error) {
-        this.showMessage(
-          error.response?.data?.detail || 'Failed to save installation disk configuration',
-          'error'
-        )
-      } finally {
-        this.loading = false
-      }
-    },
-    async saveEphemeralConfig() {
-      this.loading = true
-      try {
-        const payload = {
+        // Save EPHEMERAL config
+        const ephPayload = {
           name: 'EPHEMERAL',
           max_size: this.ephemeralConfig.enabled ? this.ephemeralConfig.maxSize : null,
           min_size: this.ephemeralConfig.enabled ? this.ephemeralConfig.minSize : null,
           disk_selector_match: this.ephemeralConfig.enabled && this.ephemeralConfig.diskSelector ? this.ephemeralConfig.diskSelector : null,
-          grow: false  // Don't auto-grow when we set a max size
+          grow: false
         }
 
         if (this.ephemeralConfigId) {
-          // Update existing configuration
           if (this.ephemeralConfig.enabled) {
-            await apiService.updateVolumeConfig(this.ephemeralConfigId, payload)
-            this.showMessage('EPHEMERAL configuration updated successfully', 'success')
+            await apiService.updateVolumeConfig(this.ephemeralConfigId, ephPayload)
           } else {
-            // Delete configuration if disabled
             await apiService.deleteVolumeConfig(this.ephemeralConfigId)
             this.ephemeralConfigId = null
-            this.showMessage('EPHEMERAL size limit removed - will use full disk', 'success')
           }
         } else if (this.ephemeralConfig.enabled) {
-          // Create new configuration
-          const created = await apiService.createVolumeConfig(payload)
+          const created = await apiService.createVolumeConfig(ephPayload)
           this.ephemeralConfigId = created.id
-          this.showMessage('EPHEMERAL configuration created successfully', 'success')
         }
+
+        this.toast.success('Storage settings saved')
       } catch (error) {
-        this.showMessage(
-          error.response?.data?.detail || 'Failed to save configuration',
-          'error'
-        )
+        this.toast.error(error.message || 'Failed to save storage settings')
       } finally {
-        this.loading = false
+        this.saving = false
       }
     },
-    scrollTo(id) {
-      const element = document.getElementById(id)
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
-    },
-    showMessage(text, type) {
-      this.message = text
-      this.messageType = type
-      setTimeout(() => {
-        this.message = null
-      }, 5000)
-    }
   }
 }
 </script>
-
-<style scoped>
-.storage-settings {
-  max-width: 1400px;
-  margin: 0 auto;
-}
-
-.header {
-  margin-bottom: 2rem;
-}
-
-h2 {
-  color: #2c3e50;
-  margin-bottom: 0.5rem;
-}
-
-.subtitle {
-  color: #666;
-  margin-bottom: 0;
-}
-
-.content-wrapper {
-  display: flex;
-  gap: 2rem;
-  align-items: flex-start;
-}
-
-.toc {
-  position: sticky;
-  top: 2rem;
-  width: 250px;
-  flex-shrink: 0;
-  background: white;
-  padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  max-height: calc(100vh - 4rem);
-  overflow-y: auto;
-}
-
-.toc h3 {
-  margin-top: 0;
-  margin-bottom: 1rem;
-  color: #2c3e50;
-  font-size: 1.1rem;
-  border-bottom: 2px solid #42b983;
-  padding-bottom: 0.5rem;
-}
-
-.toc nav ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.toc nav li {
-  margin-bottom: 0.75rem;
-}
-
-.toc nav a {
-  color: #666;
-  text-decoration: none;
-  font-size: 0.9rem;
-  line-height: 1.4;
-  display: block;
-  padding: 0.25rem 0;
-  transition: color 0.2s;
-}
-
-.toc nav a:hover {
-  color: #42b983;
-}
-
-.form-container {
-  background: white;
-  padding: 2rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  flex: 1;
-  min-width: 0;
-}
-
-.section {
-  margin-bottom: 2rem;
-  padding-bottom: 2rem;
-  border-bottom: 1px solid #eee;
-  scroll-margin-top: 2rem;
-}
-
-.section:last-of-type {
-  border-bottom: none;
-  margin-bottom: 1.5rem;
-}
-
-.section h3 {
-  color: #2c3e50;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid #e9ecef;
-}
-
-.section h4 {
-  color: #495057;
-  margin-bottom: 1rem;
-  font-size: 1rem;
-}
-
-.info-box {
-  background: #e3f2fd;
-  border-left: 4px solid #2196f3;
-  padding: 1rem;
-  border-radius: 6px;
-  margin-top: 0.5rem;
-}
-
-.info-box strong {
-  color: #1565c0;
-  display: block;
-  margin-bottom: 0.5rem;
-  font-size: 0.95rem;
-}
-
-.info-box p {
-  color: #424242;
-  margin: 0;
-  font-size: 0.9rem;
-  line-height: 1.6;
-}
-
-.info-box ul {
-  margin: 0.5rem 0;
-  padding-left: 1.5rem;
-  color: #424242;
-  font-size: 0.9rem;
-  line-height: 1.6;
-}
-
-.info-box li {
-  margin: 0.25rem 0;
-}
-
-.warning-box {
-  background: #fef3c7;
-  border-left: 4px solid #f59e0b;
-  border-radius: 4px;
-  padding: 1rem;
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.warning-box strong {
-  display: block;
-  color: #92400e;
-  margin-bottom: 0.5rem;
-}
-
-.warning-box p {
-  color: #78350f;
-  margin: 0;
-}
-
-.disk-layout-diagram {
-  margin: 1.5rem 0;
-  padding: 1rem;
-  background: #f8f9fa;
-  border-radius: 8px;
-}
-
-.partition-viz {
-  display: flex;
-  height: 60px;
-  border-radius: 4px;
-  overflow: hidden;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  margin: 1rem 0;
-}
-
-.partition {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: 600;
-  font-size: 0.85rem;
-  position: relative;
-}
-
-.partition small {
-  font-size: 0.7rem;
-  font-weight: normal;
-  opacity: 0.9;
-}
-
-.partition-efi {
-  background: #6366f1;
-  flex: 0 0 80px;
-}
-
-.partition-meta {
-  background: #8b5cf6;
-  flex: 0 0 40px;
-}
-
-.partition-state {
-  background: #ec4899;
-  flex: 0 0 80px;
-}
-
-.partition-ephemeral {
-  background: #f59e0b;
-  flex: 1;
-}
-
-.diagram-note {
-  font-size: 0.85rem;
-  color: #666;
-  margin-top: 0.5rem;
-  font-style: italic;
-}
-
-.config-panel {
-  background: #f8f9fa;
-  padding: 1.5rem;
-  border-radius: 8px;
-  margin-top: 1rem;
-}
-
-.form-group {
-  margin-bottom: 1.5rem;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  color: #2c3e50;
-  font-weight: 500;
-}
-
-.form-group input[type="checkbox"] {
-  margin-right: 0.5rem;
-}
-
-.form-group input[type="text"] {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 1rem;
-  transition: border-color 0.3s;
-}
-
-.form-group input[type="text"]:focus {
-  outline: none;
-  border-color: #5a67d8;
-}
-
-.form-group input[type="text"]:disabled {
-  background: #f3f4f6;
-  cursor: not-allowed;
-}
-
-.form-group small {
-  display: block;
-  margin-top: 0.25rem;
-  color: #666;
-  font-size: 0.85rem;
-}
-
-.size-input-group {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.form-actions {
-  margin-top: 2rem;
-  padding-top: 1rem;
-  border-top: 1px solid #e9ecef;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.save-btn {
-  background: #42b983;
-  color: white;
-  padding: 0.75rem 2rem;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: 500;
-  transition: background 0.3s;
-}
-
-.save-btn:hover:not(:disabled) {
-  background: #35a372;
-}
-
-.save-btn:disabled {
-  background: #d1d5db;
-  cursor: not-allowed;
-}
-
-.loading {
-  text-align: center;
-  padding: 3rem;
-  color: #666;
-}
-
-.message {
-  margin-top: 1rem;
-  padding: 1rem;
-  border-radius: 4px;
-  font-weight: 500;
-}
-
-.message.success {
-  background: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
-}
-
-.message.error {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
-}
-</style>

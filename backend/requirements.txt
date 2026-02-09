@@ -9,3 +9,6 @@ httpx==0.25.2
 sqlalchemy==2.0.23
 alembic==1.13.0
 requests==2.31.0
+pyyaml==6.0.2
+pytest==7.4.4
+pytest-asyncio==0.23.3

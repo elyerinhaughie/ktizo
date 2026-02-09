@@ -118,7 +118,9 @@ def _ensure_kubeconfig() -> bool:
             except Exception:
                 pass  # Re-fetch on any parse error
 
-    # Need talosconfig to fetch kubeconfig
+    # Need talosconfig to fetch kubeconfig — try to set it up if missing
+    if not talosconfig_path.exists():
+        _ensure_talosconfig()
     if not talosconfig_path.exists():
         logger.warning(f"Talosconfig not found at {talosconfig_path}, skipping kubeconfig fetch")
         return False

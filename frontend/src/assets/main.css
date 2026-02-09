@@ -1,0 +1,339 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #42b983;
+  --color-primary-hover: #35a372;
+  --color-sidebar-dark: #2c3e50;
+  --color-sidebar-darker: #1a252f;
+}
+
+/* ================================================================
+   THEME SYSTEM — CSS Custom Properties
+   Light theme values are defaults (:root).
+   Dark/Moonlight override via [data-theme] on <html>.
+   ================================================================ */
+
+:root {
+  --th-bg-page: #f3f4f6;
+  --th-bg-card: #ffffff;
+  --th-bg-card-alt: #f9fafb;
+  --th-bg-input: #ffffff;
+  --th-bg-hover: #f9fafb;
+  --th-text: #374151;
+  --th-text-secondary: #6b7280;
+  --th-text-muted: #9ca3af;
+  --th-text-heading: #2c3e50;
+  --th-border: #e5e7eb;
+  --th-border-light: #f3f4f6;
+  --th-sidebar-bg: #2c3e50;
+  --th-sidebar-darker: #1a252f;
+  --th-tooltip-bg: #1a252f;
+  --th-shadow: rgba(0,0,0,0.1);
+}
+
+[data-theme="dark"] {
+  --th-bg-page: #111827;
+  --th-bg-card: #1f2937;
+  --th-bg-card-alt: #293548;
+  --th-bg-input: #374151;
+  --th-bg-hover: #374151;
+  --th-text: #f3f4f6;
+  --th-text-secondary: #9ca3af;
+  --th-text-muted: #6b7280;
+  --th-text-heading: #f9fafb;
+  --th-border: #374151;
+  --th-border-light: #1f2937;
+  --th-sidebar-bg: #0f172a;
+  --th-sidebar-darker: #020617;
+  --th-tooltip-bg: #374151;
+  --th-shadow: rgba(0,0,0,0.3);
+}
+
+[data-theme="moonlight"] {
+  --color-primary: #b48ead;
+  --color-primary-hover: #a07da0;
+  --th-bg-page: #1a1625;
+  --th-bg-card: #241f31;
+  --th-bg-card-alt: #2d2640;
+  --th-bg-input: #2d2640;
+  --th-bg-hover: #2d2640;
+  --th-text: #e2dff0;
+  --th-text-secondary: #9b93b3;
+  --th-text-muted: #7a7291;
+  --th-text-heading: #f0ecff;
+  --th-border: #3d3554;
+  --th-border-light: #2d2640;
+  --th-sidebar-bg: #1a1028;
+  --th-sidebar-darker: #110b1d;
+  --th-tooltip-bg: #3d3554;
+  --th-shadow: rgba(0,0,0,0.4);
+}
+
+/* ================================================================
+   THEME OVERRIDES — Remap Tailwind utility classes for dark themes.
+   Scoped under [data-theme] so light theme has zero overrides.
+   ================================================================ */
+
+/* Page background */
+[data-theme] {
+  background-color: var(--th-bg-page);
+}
+[data-theme] body {
+  background-color: var(--th-bg-page);
+  color: var(--th-text);
+}
+
+/* Card / panel backgrounds */
+[data-theme] .bg-white {
+  background-color: var(--th-bg-card) !important;
+}
+[data-theme] .bg-gray-50 {
+  background-color: var(--th-bg-card-alt) !important;
+}
+[data-theme] .bg-gray-100 {
+  background-color: var(--th-bg-card-alt) !important;
+}
+
+/* Text colors */
+[data-theme] .text-gray-400 {
+  color: var(--th-text-muted) !important;
+}
+[data-theme] .text-gray-500 {
+  color: var(--th-text-secondary) !important;
+}
+[data-theme] .text-gray-600 {
+  color: var(--th-text-secondary) !important;
+}
+[data-theme] .text-gray-700 {
+  color: var(--th-text) !important;
+}
+[data-theme] .text-gray-800 {
+  color: var(--th-text) !important;
+}
+[data-theme] .text-gray-900 {
+  color: var(--th-text-heading) !important;
+}
+[data-theme] .text-sidebar-dark {
+  color: var(--th-text-heading) !important;
+}
+
+/* Borders */
+[data-theme] .border-gray-100 {
+  border-color: var(--th-border-light) !important;
+}
+[data-theme] .border-gray-200 {
+  border-color: var(--th-border) !important;
+}
+[data-theme] .border-gray-300 {
+  border-color: var(--th-border) !important;
+}
+[data-theme] .divide-gray-200 > * + * {
+  border-color: var(--th-border) !important;
+}
+
+/* Sidebar */
+[data-theme] .bg-sidebar-dark {
+  background-color: var(--th-sidebar-bg) !important;
+}
+[data-theme] .bg-sidebar-darker {
+  background-color: var(--th-sidebar-darker) !important;
+}
+
+/* Hover states */
+[data-theme] .hover\:bg-gray-50:hover {
+  background-color: var(--th-bg-hover) !important;
+}
+[data-theme] .hover\:bg-gray-100:hover {
+  background-color: var(--th-bg-hover) !important;
+}
+[data-theme] .hover\:bg-gray-200:hover {
+  background-color: var(--th-bg-hover) !important;
+}
+
+/* Inputs */
+[data-theme] input,
+[data-theme] select,
+[data-theme] textarea {
+  background-color: var(--th-bg-input) !important;
+  color: var(--th-text) !important;
+  border-color: var(--th-border) !important;
+}
+[data-theme] input::placeholder,
+[data-theme] textarea::placeholder {
+  color: var(--th-text-muted) !important;
+}
+[data-theme] input:disabled,
+[data-theme] select:disabled,
+[data-theme] textarea:disabled {
+  background-color: var(--th-bg-card-alt) !important;
+  color: var(--th-text-muted) !important;
+}
+
+/* Info callout boxes */
+[data-theme="dark"] .bg-blue-50 { background-color: #1e293b !important; }
+[data-theme="dark"] .text-blue-800 { color: #93c5fd !important; }
+[data-theme="dark"] .text-blue-700 { color: #93c5fd !important; }
+[data-theme="moonlight"] .bg-blue-50 { background-color: #241f35 !important; }
+[data-theme="moonlight"] .text-blue-800 { color: #d4bfdb !important; }
+[data-theme="moonlight"] .text-blue-700 { color: #d4bfdb !important; }
+
+/* Warning callout boxes */
+[data-theme="dark"] .bg-amber-50 { background-color: #292524 !important; }
+[data-theme="dark"] .text-amber-800 { color: #fcd34d !important; }
+[data-theme="dark"] .text-amber-900 { color: #fcd34d !important; }
+[data-theme="moonlight"] .bg-amber-50 { background-color: #2d2433 !important; }
+[data-theme="moonlight"] .text-amber-800 { color: #f0d0a0 !important; }
+[data-theme="moonlight"] .text-amber-900 { color: #f0d0a0 !important; }
+
+/* Action button icon backgrounds (Device Management, etc.) */
+[data-theme="dark"] .bg-green-100 { background-color: #14532d !important; }
+[data-theme="dark"] .bg-red-100 { background-color: #450a0a !important; }
+[data-theme="dark"] .bg-blue-100 { background-color: #1e3a5f !important; }
+[data-theme="dark"] .bg-orange-100 { background-color: #431407 !important; }
+[data-theme="dark"] .bg-emerald-100 { background-color: #064e3b !important; }
+[data-theme="dark"] .bg-amber-100 { background-color: #451a03 !important; }
+[data-theme="dark"] .text-green-800 { color: #86efac !important; }
+[data-theme="dark"] .text-red-800 { color: #fca5a5 !important; }
+[data-theme="dark"] .text-blue-800 { color: #93c5fd !important; }
+[data-theme="dark"] .text-orange-800 { color: #fdba74 !important; }
+[data-theme="dark"] .text-emerald-800 { color: #6ee7b7 !important; }
+
+[data-theme="moonlight"] .bg-green-100 { background-color: #1a2e2a !important; }
+[data-theme="moonlight"] .bg-red-100 { background-color: #2d1f2f !important; }
+[data-theme="moonlight"] .bg-blue-100 { background-color: #1f2540 !important; }
+[data-theme="moonlight"] .bg-orange-100 { background-color: #2d2020 !important; }
+[data-theme="moonlight"] .bg-emerald-100 { background-color: #1a2e2a !important; }
+[data-theme="moonlight"] .bg-amber-100 { background-color: #2d2520 !important; }
+[data-theme="moonlight"] .text-green-800 { color: #a3d9b1 !important; }
+[data-theme="moonlight"] .text-red-800 { color: #e0a0a0 !important; }
+[data-theme="moonlight"] .text-orange-800 { color: #e0c0a0 !important; }
+[data-theme="moonlight"] .text-emerald-800 { color: #a3d9b1 !important; }
+
+/* Shadows */
+[data-theme] .shadow-md {
+  box-shadow: 0 4px 6px -1px var(--th-shadow), 0 2px 4px -2px var(--th-shadow) !important;
+}
+[data-theme] .shadow-lg {
+  box-shadow: 0 10px 15px -3px var(--th-shadow), 0 4px 6px -4px var(--th-shadow) !important;
+}
+
+/* Code blocks in wiki — already dark, make them slightly different per theme */
+[data-theme="dark"] .bg-sidebar-darker {
+  background-color: #020617 !important;
+}
+[data-theme="moonlight"] .bg-sidebar-darker {
+  background-color: #110b1d !important;
+}
+
+/* SVG gauge fills and strokes */
+[data-theme] .fill-sidebar-dark { fill: var(--th-text-heading) !important; }
+[data-theme] .fill-gray-400 { fill: var(--th-text-muted) !important; }
+[data-theme] .stroke-gray-200 { stroke: var(--th-border) !important; }
+
+/* Moonlight: override the active nav indicator color to match primary */
+[data-theme="moonlight"] .nav-item.router-link-active {
+  border-left-color: #b48ead;
+}
+
+/* ================================================================
+   BASE STYLES
+   ================================================================ */
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+/* ToC scroll-to glow */
+@keyframes toc-glow {
+  0% { box-shadow: 0 0 0 0 rgba(66, 185, 131, 0.8); }
+  30% { box-shadow: 0 0 24px 8px rgba(66, 185, 131, 0.6); }
+  100% { box-shadow: 0 0 0 0 rgba(66, 185, 131, 0); }
+}
+
+.toc-highlight {
+  position: relative;
+  z-index: 5;
+}
+
+.toc-highlight::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  border-radius: 12px;
+  animation: toc-glow 1.5s ease-out;
+  pointer-events: none;
+}
+
+[data-theme="moonlight"] .toc-highlight::after {
+  animation-name: toc-glow-moonlight;
+}
+
+@keyframes toc-glow-moonlight {
+  0% { box-shadow: 0 0 0 0 rgba(180, 142, 173, 0.8); }
+  30% { box-shadow: 0 0 24px 8px rgba(180, 142, 173, 0.6); }
+  100% { box-shadow: 0 0 0 0 rgba(180, 142, 173, 0); }
+}
+
+/* Wipe pulse animation */
+@keyframes wipe-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-wipe-pulse {
+  animation: wipe-pulse 2s ease-in-out infinite;
+}
+
+/* Terminal pulse animation */
+@keyframes pulse-terminal {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-pulse-terminal {
+  animation: pulse-terminal 1s infinite;
+}
+
+/* Custom tooltips via data-tooltip attribute */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  background: var(--th-tooltip-bg, #1a252f);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 50;
+}
+
+[data-tooltip]::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: var(--th-tooltip-bg, #1a252f);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 50;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:hover::before {
+  opacity: 1;
+}

@@ -3,7 +3,9 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.volume import VolumeConfigResponse, VolumeConfigCreate, VolumeConfigUpdate
 from app.crud import volume as volume_crud
+from app.services.audit_service import log_action
 from typing import List
+import json
 
 router = APIRouter()
 
@@ -41,7 +43,10 @@ async def create_volume_config(config: VolumeConfigCreate, db: Session = Depends
         )
 
     try:
-        return volume_crud.create_volume_config(db, config)
+        created = volume_crud.create_volume_config(db, config)
+        await log_action(db, "created_volume_config", "Storage Settings",
+            json.dumps({"name": str(config.name)}), "volume_config", str(created.id))
+        return created
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid volume name: {str(e)}")
 
@@ -51,6 +56,8 @@ async def update_volume_config(volume_id: int, config: VolumeConfigUpdate, db: S
     updated = volume_crud.update_volume_config(db, volume_id, config)
     if not updated:
         raise HTTPException(status_code=404, detail="Volume configuration not found")
+    await log_action(db, "updated_volume_config", "Storage Settings",
+        json.dumps({"name": str(updated.name)}), "volume_config", str(volume_id))
     return updated
 
 @router.delete("/configs/{volume_id}")
@@ -59,4 +66,6 @@ async def delete_volume_config(volume_id: int, db: Session = Depends(get_db)):
     success = volume_crud.delete_volume_config(db, volume_id)
     if not success:
         raise HTTPException(status_code=404, detail="Volume configuration not found")
+    await log_action(db, "deleted_volume_config", "Storage Settings",
+        None, "volume_config", str(volume_id))
     return {"message": "Volume configuration deleted successfully"}

@@ -11,7 +11,9 @@ from app.schemas.cluster import (
 )
 from app.crud import cluster as cluster_crud
 from app.core.config import ensure_v_prefix, strip_v_prefix
+from app.services.audit_service import log_action
 import subprocess
+import json as json_module
 import tempfile
 import os
 import shutil
@@ -21,6 +23,92 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _deploy_cni(cni_name: str, api_server_ip: str = "", upgrade: bool = False) -> bool:
+    """Deploy a CNI plugin via helm after bootstrap.
+
+    Args:
+        cni_name: CNI to deploy (cilium, calico).
+        api_server_ip: Control plane IP. Required for Cilium (kubeProxyReplacement
+            needs direct API server access since kube-proxy is absent).
+        upgrade: If True, use 'helm upgrade --install' instead of 'helm install'
+            so an existing release gets updated rather than erroring out.
+
+    Returns True on success, False on failure.
+    """
+    cni = cni_name.lower()
+    helm_bin = shutil.which("helm")
+    if not helm_bin:
+        project_helm = Path(__file__).parent.parent.parent / "helm"
+        helm_bin = str(project_helm) if project_helm.is_file() else "helm"
+
+    kubeconfig = str(Path.home() / ".kube" / "config")
+    env = os.environ.copy()
+    env["KUBECONFIG"] = kubeconfig
+
+    install_cmd = "upgrade" if upgrade else "install"
+
+    def _run(args, timeout=120):
+        logger.info(f"CNI deploy: helm {' '.join(args)}")
+        r = subprocess.run([helm_bin] + args, capture_output=True, text=True, timeout=timeout, env=env)
+        if r.returncode != 0:
+            logger.warning(f"helm {args[0]} failed: {r.stderr}")
+        return r.returncode == 0, r.stderr or r.stdout
+
+    try:
+        if cni == "cilium":
+            if not api_server_ip:
+                logger.error("Cilium requires api_server_ip for kubeProxyReplacement")
+                return False
+            _run(["repo", "add", "cilium", "https://helm.cilium.io/"], timeout=30)
+            _run(["repo", "update"], timeout=30)
+            cmd = [
+                install_cmd, "cilium", "cilium/cilium",
+                "--namespace", "kube-system",
+                "--set", "ipam.mode=kubernetes",
+                "--set", "kubeProxyReplacement=true",
+                "--set", f"k8sServiceHost={api_server_ip}",
+                "--set", "k8sServicePort=6443",
+                "--set", "securityContext.capabilities.ciliumAgent={CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}",
+                "--set", "securityContext.capabilities.cleanCiliumState={NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}",
+                "--set", "cgroup.autoMount.enabled=false",
+                "--set", "cgroup.hostRoot=/sys/fs/cgroup",
+            ]
+            if upgrade:
+                cmd.append("--install")
+            ok, output = _run(cmd)
+            if ok:
+                logger.info("Cilium CNI deployed successfully")
+            else:
+                logger.error(f"Cilium deployment failed: {output}")
+            return ok
+
+        elif cni == "calico":
+            _run(["repo", "add", "projectcalico", "https://docs.tigera.io/calico/charts"], timeout=30)
+            _run(["repo", "update"], timeout=30)
+            cmd = [
+                install_cmd, "calico", "projectcalico/tigera-operator",
+                "--namespace", "tigera-operator",
+                "--create-namespace",
+            ]
+            if upgrade:
+                cmd.append("--install")
+            ok, output = _run(cmd)
+            if ok:
+                logger.info("Calico CNI deployed successfully")
+            else:
+                logger.error(f"Calico deployment failed: {output}")
+            return ok
+
+        else:
+            logger.warning(f"Unknown CNI '{cni}', skipping automatic deployment")
+            return False
+
+    except Exception as e:
+        logger.error(f"CNI deployment error: {e}")
+        return False
+
 
 def find_talosctl() -> str:
     """Find talosctl binary - check project directory first, then PATH"""
@@ -185,6 +273,10 @@ async def update_cluster_settings(settings_id: int, settings: ClusterSettingsUpd
         print(f"Warning: Could not auto-generate configs: {e}")
         print(f"Full traceback: {traceback.format_exc()}")
 
+    await log_action(db, "updated_cluster_settings", "Cluster Settings",
+        json_module.dumps({"cluster_name": updated.cluster_name, "kubernetes_version": updated.kubernetes_version}),
+        "cluster_settings", str(settings_id))
+
     return updated
 
 @router.post("/config/generate")
@@ -317,6 +409,10 @@ async def generate_cluster_config(db: Session = Depends(get_db)):
             )
             generated_files["secrets"] = secrets_content
 
+        await log_action(db, "generated_cluster_config", "Cluster Settings",
+            json_module.dumps({"cluster_name": settings.cluster_name}),
+            "cluster_settings", str(settings.id))
+
         return {
             "message": "Cluster configuration generated successfully in templates/base/",
             "output_dir": str(base_dir),
@@ -369,6 +465,9 @@ async def generate_secrets(request: GenerateSecretsRequest, db: Session = Depend
                 cluster_settings.id,
                 ClusterSettingsUpdate(secrets_file=secrets_content)
             )
+
+        await log_action(db, "generated_secrets", "Cluster Settings",
+            None, "cluster_settings", None)
 
         return GenerateSecretsResponse(
             secrets=secrets_content,
@@ -490,25 +589,52 @@ async def bootstrap_cluster(db: Session = Depends(get_db)):
                 detail=f"Failed to bootstrap cluster: {result.stderr}"
             )
 
-        # After successful bootstrap, try to fetch kubeconfig automatically
-        # Wait a moment for the cluster to be ready
+        # After successful bootstrap, set up local configs
         import time
-        logger.info("Bootstrap successful, waiting for cluster to be ready before fetching kubeconfig...")
-        time.sleep(5)  # Give cluster a moment to initialize
-        
-        # Try to fetch kubeconfig (non-blocking - don't fail if it's not ready yet)
+        logger.info("Bootstrap successful, setting up local talosconfig and kubeconfig...")
+
+        # Ensure talosconfig is at ~/.talos/config (needed by _ensure_kubeconfig)
         try:
-            from app.api.terminal_router import _ensure_kubeconfig
-            kubeconfig_fetched = _ensure_kubeconfig()
-            if kubeconfig_fetched:
-                logger.info("✅ Kubeconfig automatically fetched after bootstrap")
-            else:
-                logger.info("⚠️  Kubeconfig not yet available (cluster may still be initializing)")
+            from app.api.terminal_router import _ensure_talosconfig, _ensure_kubeconfig
+            _ensure_talosconfig()
         except Exception as e:
-            logger.warning(f"Could not auto-fetch kubeconfig after bootstrap: {e}")
+            logger.warning(f"Could not set up talosconfig: {e}")
+
+        # Retry kubeconfig fetch — API server takes time to come up after bootstrap
+        kubeconfig_fetched = False
+        for attempt in range(6):
+            wait = 5 * (attempt + 1)
+            logger.info(f"Waiting {wait}s for API server before fetching kubeconfig (attempt {attempt + 1}/6)...")
+            time.sleep(wait)
+            try:
+                kubeconfig_fetched = _ensure_kubeconfig()
+                if kubeconfig_fetched:
+                    logger.info("Kubeconfig automatically fetched after bootstrap")
+                    break
+            except Exception as e:
+                logger.warning(f"Kubeconfig fetch attempt {attempt + 1} failed: {e}")
+
+        if not kubeconfig_fetched:
+            logger.warning("Kubeconfig not available yet — cluster may still be initializing. "
+                           "Use the Download Kubeconfig button once the cluster is ready.")
+
+        # Deploy CNI if not flannel (flannel is built into Talos, others need helm)
+        cni_deployed = None
+        if settings.cni and settings.cni.lower() != "flannel" and kubeconfig_fetched:
+            cni_deployed = _deploy_cni(settings.cni, api_server_ip=bootstrap_ip)
+
+        await log_action(db, "bootstrapped_cluster", "Cluster Settings",
+            json_module.dumps({"node": bootstrap_node.hostname or bootstrap_node.mac_address, "ip": bootstrap_ip}),
+            "cluster_settings", None)
+
+        msg = f"Cluster bootstrapped successfully using node {bootstrap_node.hostname or bootstrap_node.mac_address} ({bootstrap_ip})"
+        if cni_deployed:
+            msg += f". {settings.cni} CNI deployed."
+        elif cni_deployed is False:
+            msg += f". Warning: {settings.cni} CNI deployment failed — install manually."
 
         return {
-            "message": f"Cluster bootstrapped successfully using node {bootstrap_node.hostname or bootstrap_node.mac_address} ({bootstrap_ip})",
+            "message": msg,
             "bootstrap_node": {
                 "hostname": bootstrap_node.hostname,
                 "mac_address": bootstrap_node.mac_address,
@@ -604,6 +730,9 @@ async def download_kubeconfig(db: Session = Depends(get_db)):
             os.chmod(kubeconfig_home_path, 0o600)
             logger.info(f"Saved kubeconfig to {kubeconfig_home_path} for terminal use")
             
+            await log_action(db, "downloaded_kubeconfig", "Cluster Settings",
+                None, "cluster_settings", None)
+
             # Return the file as a download
             from fastapi.responses import Response
             return Response(

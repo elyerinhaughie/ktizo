@@ -17,6 +17,9 @@ class ClusterSettingsBase(BaseModel):
     cni: str = Field(default="flannel", description="CNI plugin (flannel, calico, cilium)")
     dns_domain: str = Field(default="cluster.local", description="Cluster DNS domain")
     secrets_file: Optional[str] = Field(None, description="Talos secrets YAML content")
+    system_extensions: Optional[str] = Field(None, description="JSON array of system extension images")
+    kernel_modules: Optional[str] = Field(None, description="JSON array of kernel module names")
+    factory_schematic_id: Optional[str] = Field(None, description="Cached Talos Factory schematic ID")
 
 class ClusterSettingsCreate(ClusterSettingsBase):
     """Schema for creating cluster settings"""
@@ -37,6 +40,9 @@ class ClusterSettingsUpdate(BaseModel):
     cni: Optional[str] = None
     dns_domain: Optional[str] = None
     secrets_file: Optional[str] = None
+    system_extensions: Optional[str] = None
+    kernel_modules: Optional[str] = None
+    factory_schematic_id: Optional[str] = None
 
 class ClusterSettingsResponse(ClusterSettingsBase):
     """Schema for cluster settings response"""

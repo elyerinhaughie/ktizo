@@ -1,249 +1,135 @@
 import axios from 'axios'
+import ws from './websocket.js'
 
-// Determine API base URL
-// Priority: 1. Current hostname (if not localhost), 2. Environment variable (if not localhost), 3. localhost fallback
+// HTTP client kept for health check and binary downloads
 function getApiBaseUrl() {
-  // First, try to detect hostname from window.location
   if (typeof window !== 'undefined' && window.location) {
     const protocol = window.location.protocol
     const hostname = window.location.hostname
-    const port = window.location.port
-    
-    // If hostname is not localhost/127.0.0.1, use it (remote access)
     if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      const apiUrl = `${protocol}//${hostname}:8000`
-      console.log('[API] Using detected remote hostname:', apiUrl, '(hostname:', hostname, ')')
-      return apiUrl
+      return `${protocol}//${hostname}:8000`
     }
   }
-  
-  // Check environment variable, but ignore if it's localhost (for remote access)
   if (import.meta.env.VITE_API_URL) {
     const envUrl = import.meta.env.VITE_API_URL
-    // Only use env var if it's not localhost (allows override for remote backends)
     if (!envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
-      console.log('[API] Using VITE_API_URL (non-localhost):', envUrl)
       return envUrl
-    } else {
-      console.log('[API] Ignoring VITE_API_URL (localhost):', envUrl, '- will use detected hostname instead')
     }
   }
-  
-  // Use current hostname (works when accessing from remote IP)
   if (typeof window !== 'undefined' && window.location) {
-    const protocol = window.location.protocol
-    const hostname = window.location.hostname
-    const port = window.location.port
-    const apiUrl = `${protocol}//${hostname}:8000`
-    
-    // Debug logging
-    console.log('[API] Window location:', {
-      protocol,
-      hostname,
-      port,
-      href: window.location.href
-    })
-    console.log('[API] Detected API URL:', apiUrl)
-    
-    // Warn if hostname is localhost but we're on a non-standard port (might indicate proxy/port forwarding)
-    if (hostname === 'localhost' && port && port !== '5173' && port !== '8000') {
-      console.warn('[API] Warning: hostname is localhost but port is', port, '- API URL will be localhost:8000')
-    }
-    
-    return apiUrl
+    return `${window.location.protocol}//${window.location.hostname}:8000`
   }
-  
-  // Fallback for SSR or when window is not available
-  console.warn('[API] Window not available, using localhost fallback')
   return 'http://localhost:8000'
 }
 
-// Create axios instance - baseURL will be set dynamically
-const apiClient = axios.create({
-  headers: {
-    'Content-Type': 'application/json'
-  }
-})
-
-// Set baseURL dynamically on each request to ensure we get current hostname
-// This ensures we always use the current hostname, even if accessed from remote IP
-apiClient.interceptors.request.use(config => {
-  // Always recalculate baseURL to get current hostname
-  const apiBaseUrl = getApiBaseUrl()
-  config.baseURL = apiBaseUrl
-  
-  // Ensure URL is absolute (not relative) to bypass Vite proxy
-  // If config.url starts with /, make it relative to baseURL
-  if (config.url && config.url.startsWith('/')) {
-    // URL is already relative, baseURL will be prepended by axios
-    // But we want to ensure we're using the full absolute URL
-    const fullUrl = apiBaseUrl + config.url
-    console.log('API request:', config.method?.toUpperCase(), fullUrl)
-  } else {
-    console.log('API request:', config.method?.toUpperCase(), config.baseURL + (config.url || ''))
-  }
-  
+const httpClient = axios.create({ headers: { 'Content-Type': 'application/json' } })
+httpClient.interceptors.request.use(config => {
+  config.baseURL = getApiBaseUrl()
   return config
 })
 
-// Set initial baseURL (will be overridden by interceptor, but useful for logging)
-const API_BASE_URL = getApiBaseUrl()
-apiClient.defaults.baseURL = API_BASE_URL
-console.log('Axios API client initialized. Base URL will be set dynamically per request.')
-console.log('Initial baseURL:', apiClient.defaults.baseURL)
-
-// Add response interceptor for better error handling
-apiClient.interceptors.response.use(
-  response => response,
-  error => {
-    // Log errors for debugging
-    if (error.response) {
-      // Server responded with error status
-      console.error('API Error:', error.response.status, error.response.data)
-    } else if (error.request) {
-      // Request made but no response (network error)
-      console.error('Network Error: No response from server', error.request)
-      const currentApiUrl = getApiBaseUrl()
-      error.message = `Cannot connect to backend at ${currentApiUrl}. Is the backend running?`
-    } else {
-      // Something else happened
-      console.error('Request Error:', error.message)
-    }
-    return Promise.reject(error)
-  }
-)
-
 export default {
+  // Health check stays HTTP (needed before WS is up)
   async getStatus() {
-    const response = await apiClient.get('/')
-    return response.data
+    const r = await httpClient.get('/')
+    return r.data
   },
 
-  // Network Settings API
-  async getNetworkSettings() {
-    const response = await apiClient.get('/api/v1/network/settings')
-    return response.data
+  // --- Network ---
+  getNetworkSettings: () => ws.request('network.get'),
+  getNetworkInterfaces: () => ws.request('network.interfaces'),
+  detectNetworkConfig: (iface) => ws.request('network.detect', { interface: iface }),
+  createNetworkSettings: (s) => ws.request('network.create', s),
+  updateNetworkSettings: (id, s) => ws.request('network.update', { settings_id: id, ...s }),
+  applyNetworkSettings: () => ws.request('network.apply'),
+
+  // --- Cluster ---
+  getClusterSettings: () => ws.request('cluster.get'),
+  createClusterSettings: (s) => ws.request('cluster.create', s),
+  updateClusterSettings: (id, s) => ws.request('cluster.update', { settings_id: id, ...s }),
+  generateClusterSecrets: (name) => ws.request('cluster.generate_secrets', { cluster_name: name }),
+  bootstrapCluster: () => ws.request('cluster.bootstrap'),
+
+  // Kubeconfig stays HTTP (binary file download)
+  async downloadKubeconfig() {
+    const r = await httpClient.get('/api/v1/cluster/kubeconfig', { responseType: 'blob' })
+    return r.data
   },
 
-  async createNetworkSettings(settings) {
-    const response = await apiClient.post('/api/v1/network/settings', settings)
-    return response.data
-  },
+  // --- Devices ---
+  getDevices: (status) => ws.request('devices.list', status ? { status } : {}),
+  getDevice: (id) => ws.request('devices.get', { device_id: id }),
+  createDevice: (d) => ws.request('devices.create', d),
+  updateDevice: (id, d) => ws.request('devices.update', { device_id: id, ...d }),
+  getApprovalSuggestions: (id) => ws.request('devices.approval_suggestions', { device_id: id }),
+  approveDevice: (id, data) => ws.request('devices.approve', { device_id: id, ...data }),
+  rejectDevice: (id) => ws.request('devices.reject', { device_id: id }),
+  deleteDevice: (id) => ws.request('devices.delete', { device_id: id }),
+  regenerateConfigs: () => ws.request('devices.regenerate'),
+  getDeviceHealth: () => ws.request('devices.health'),
+  shutdownDevice: (id) => ws.request('devices.shutdown', { device_id: id }),
+  wakeDevice: (id) => ws.request('devices.wake', { device_id: id }),
 
-  async updateNetworkSettings(settingsId, settings) {
-    const response = await apiClient.put(`/api/v1/network/settings/${settingsId}`, settings)
-    return response.data
-  },
+  // --- Volumes ---
+  getVolumeConfigs: () => ws.request('volumes.list'),
+  getVolumeConfig: (id) => ws.request('volumes.get', { volume_id: id }),
+  getVolumeConfigByName: (name) => ws.request('volumes.get_by_name', { name }),
+  createVolumeConfig: (c) => ws.request('volumes.create', c),
+  updateVolumeConfig: (id, c) => ws.request('volumes.update', { volume_id: id, ...c }),
+  deleteVolumeConfig: (id) => ws.request('volumes.delete', { volume_id: id }),
 
-  async applyNetworkSettings() {
-    const response = await apiClient.post('/api/v1/network/settings/apply')
-    return response.data
-  },
+  // --- Talos ---
+  getTalosSettings: () => ws.request('talos.get'),
+  updateTalosSettings: (s) => ws.request('talos.update', s),
 
-  // Cluster Settings API
-  async getClusterSettings() {
-    const response = await apiClient.get('/api/v1/cluster/settings')
-    return response.data
-  },
+  // --- Versions ---
+  getTalosVersions: () => ws.request('versions.talos'),
+  getKubernetesVersions: () => ws.request('versions.kubernetes'),
 
-  async createClusterSettings(settings) {
-    const response = await apiClient.post('/api/v1/cluster/settings', settings)
-    return response.data
-  },
+  // --- Devices (extra) ---
+  rebootDevice: (id) => ws.request('devices.reboot', { device_id: id }),
+  rollingRefreshWorkers: (deviceIds, opts = {}) => ws.request('devices.rolling_refresh', {
+    ...(deviceIds ? { device_ids: deviceIds } : {}),
+    ...opts,
+  }),
+  cancelRollingRefresh: () => ws.request('devices.rolling_refresh_cancel'),
+  getRollingRefreshStatus: () => ws.request('devices.rolling_refresh_status'),
 
-  async updateClusterSettings(settingsId, settings) {
-    const response = await apiClient.put(`/api/v1/cluster/settings/${settingsId}`, settings)
-    return response.data
-  },
+  // --- Modules ---
+  getModuleCatalog: () => ws.request('modules.catalog'),
+  getModules: () => ws.request('modules.list'),
+  getModule: (id) => ws.request('modules.get', { release_id: id }),
+  installModule: (params) => ws.request('modules.install', params),
+  upgradeModule: (id, params) => ws.request('modules.upgrade', { release_id: id, ...params }),
+  cancelModule: (id) => ws.request('modules.cancel', { release_id: id }),
+  forceDeleteModule: (id) => ws.request('modules.force_delete', { release_id: id }),
+  uninstallModule: (id) => ws.request('modules.uninstall', { release_id: id }),
+  getModuleLog: (id) => ws.request('modules.log', { release_id: id }),
+  getHelmRepos: () => ws.request('modules.repos.list'),
+  addHelmRepo: (params) => ws.request('modules.repos.add', params),
+  deleteHelmRepo: (id) => ws.request('modules.repos.delete', { repo_id: id }),
 
-  async generateClusterSecrets(clusterName) {
-    const response = await apiClient.post('/api/v1/cluster/secrets/generate', {
-      cluster_name: clusterName
-    })
-    return response.data
-  },
+  // --- Longhorn ---
+  longhornNodes: () => ws.request('longhorn.nodes'),
+  longhornDiscoverDisks: (nodeName) => ws.request('longhorn.discover_disks', { node_name: nodeName }),
+  longhornAddDisk: (params) => ws.request('longhorn.add_disk', params),
+  longhornRemoveDisk: (params) => ws.request('longhorn.remove_disk', params),
+  longhornUseAllDisks: (nodeName) => ws.request('longhorn.use_all_disks', { node_name: nodeName }),
+  longhornAutoConfig: (params) => ws.request('longhorn.auto_config', params),
 
-  async bootstrapCluster() {
-    const response = await apiClient.post('/api/v1/cluster/bootstrap')
-    return response.data
-  },
+  // --- Audit ---
+  getAuditLogs: (params) => ws.request('audit.list', params || {}),
+  clearAuditLogs: () => ws.request('audit.clear'),
 
-  // Device Management API
-  async getDevices(status = null) {
-    const params = status ? { status } : {}
-    const response = await apiClient.get('/api/v1/devices', { params })
-    return response.data
-  },
-
-  async getDevice(deviceId) {
-    const response = await apiClient.get(`/api/v1/devices/${deviceId}`)
-    return response.data
-  },
-
-  async createDevice(device) {
-    const response = await apiClient.post('/api/v1/devices', device)
-    return response.data
-  },
-
-  async updateDevice(deviceId, device) {
-    const response = await apiClient.put(`/api/v1/devices/${deviceId}`, device)
-    return response.data
-  },
-
-  async getApprovalSuggestions(deviceId) {
-    const response = await apiClient.get(`/api/v1/devices/${deviceId}/approval-suggestions`)
-    return response.data
-  },
-
-  async approveDevice(deviceId, approvalData) {
-    const response = await apiClient.post(`/api/v1/devices/${deviceId}/approve`, approvalData)
-    return response.data
-  },
-
-  async rejectDevice(deviceId) {
-    const response = await apiClient.post(`/api/v1/devices/${deviceId}/reject`)
-    return response.data
-  },
-
-  async deleteDevice(deviceId) {
-    const response = await apiClient.delete(`/api/v1/devices/${deviceId}`)
-    return response.data
-  },
-
-  async getRecentEvents(since = null) {
-    const params = since ? { since } : {}
-    const response = await apiClient.get('/api/v1/events/recent', { params })
-    return response.data
-  },
-
-  // Volume Configuration API
-  async getVolumeConfigs() {
-    const response = await apiClient.get('/api/v1/volumes/configs')
-    return response.data
-  },
-
-  async getVolumeConfig(volumeId) {
-    const response = await apiClient.get(`/api/v1/volumes/configs/${volumeId}`)
-    return response.data
-  },
-
-  async getVolumeConfigByName(name) {
-    const response = await apiClient.get(`/api/v1/volumes/configs/name/${name}`)
-    return response.data
-  },
-
-  async createVolumeConfig(config) {
-    const response = await apiClient.post('/api/v1/volumes/configs', config)
-    return response.data
-  },
-
-  async updateVolumeConfig(volumeId, config) {
-    const response = await apiClient.put(`/api/v1/volumes/configs/${volumeId}`, config)
-    return response.data
-  },
-
-  async deleteVolumeConfig(volumeId) {
-    const response = await apiClient.delete(`/api/v1/volumes/configs/${volumeId}`)
-    return response.data
-  }
+  // --- Troubleshooting ---
+  troubleshootStatus: () => ws.request('troubleshoot.status'),
+  troubleshootFixKubeconfig: () => ws.request('troubleshoot.fix_kubeconfig'),
+  troubleshootFixTalosconfig: () => ws.request('troubleshoot.fix_talosconfig'),
+  troubleshootRegenConfigs: () => ws.request('troubleshoot.regen_configs'),
+  troubleshootRegenDnsmasq: () => ws.request('troubleshoot.regen_dnsmasq'),
+  troubleshootRestartDnsmasq: () => ws.request('troubleshoot.restart_dnsmasq'),
+  troubleshootDownloadTalosctl: (version) => ws.request('troubleshoot.download_talosctl', version ? { version } : {}),
+  troubleshootDownloadKubectl: (version) => ws.request('troubleshoot.download_kubectl', version ? { version } : {}),
+  troubleshootDownloadTalosFiles: (version) => ws.request('troubleshoot.download_talos_files', version ? { version } : {}),
+  troubleshootReinstallCni: () => ws.request('troubleshoot.reinstall_cni'),
 }

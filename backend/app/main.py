@@ -2,12 +2,14 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-from app.api import network_router, cluster_router, device_router, volume_router, terminal_router
+from app.api import network_router, cluster_router, device_router, volume_router, terminal_router, audit_router, module_router
+from app.services.websocket_manager import websocket_manager
 from app.db.database import init_db, SessionLocal
 from app.services.talos_downloader import talos_downloader
 from app.services.ipxe_downloader import ipxe_downloader
 from app.crud import network as network_crud
 from pathlib import Path
+import asyncio
 import logging
 import os
 
@@ -114,6 +116,10 @@ async def startup_event():
     finally:
         db.close()
     
+    # Start background health checker
+    from app.services.health_checker import health_check_loop
+    asyncio.create_task(health_check_loop())
+
     # Check and download kubectl if needed
     try:
         db = SessionLocal()
@@ -248,6 +254,12 @@ async def pxe_wipe_started(mac_address: str):
             db.refresh(device)
             logger.info(f"Wipe started for {mac_address}, reset wipe_on_next_boot flag")
 
+            # Remove the Kubernetes node object so it re-joins cleanly after wipe
+            if device.hostname:
+                from app.services.kubectl_runner import kubectl_delete_node
+                ok, msg = kubectl_delete_node(device.hostname)
+                logger.info(f"kubectl delete node {device.hostname} after wipe: {msg}")
+
             # Regenerate boot.ipxe so subsequent boots don't wipe again
             try:
                 network_settings = network_crud.get_network_settings(db)
@@ -362,7 +374,26 @@ app.include_router(network_router.router, prefix="/api/v1/network", tags=["netwo
 app.include_router(cluster_router.router, prefix="/api/v1/cluster", tags=["cluster"])
 app.include_router(volume_router.router, prefix="/api/v1/volumes", tags=["volumes"])
 app.include_router(terminal_router.router, tags=["terminal"])
+app.include_router(audit_router.router, prefix="/api/v1/audit", tags=["audit"])
+app.include_router(module_router.router, prefix="/api/v1", tags=["modules"])
 
-# Also include device_router without /v1 prefix for backward compatibility
-# (some clients may still call /api/devices directly)
-app.include_router(device_router.router, prefix="/api", tags=["devices"])
+# Unified bidirectional WebSocket endpoint
+from fastapi import WebSocket, WebSocketDisconnect
+from app.api.ws_handler import handle_ws_message
+
+@app.websocket("/api/v1/ws")
+async def unified_ws(websocket: WebSocket):
+    """Unified WebSocket: receives CRUD requests, sends responses + broadcasts."""
+    await websocket_manager.connect(websocket)
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            await handle_ws_message(websocket, raw)
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket)
+
+# Backward-compat alias for old event-only WS endpoint
+@app.websocket("/api/v1/events/ws")
+async def legacy_ws(websocket: WebSocket):
+    """Legacy alias — same as /api/v1/ws."""
+    await unified_ws(websocket)

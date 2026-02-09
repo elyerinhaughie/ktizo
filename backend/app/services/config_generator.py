@@ -1,5 +1,6 @@
 """Service for generating static Talos configuration files"""
 from pathlib import Path
+import json
 import yaml
 import logging
 import os
@@ -37,19 +38,31 @@ class ConfigGenerator:
         self.output_dir = output_path
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def _generate_volume_configs(self, db) -> List[Dict[str, Any]]:
+    def _generate_volume_configs(self, db, device=None) -> List[Dict[str, Any]]:
         """
         Generate VolumeConfig documents for system volumes.
+
+        If a device is provided and has per-device EPHEMERAL overrides, those are
+        used instead of the global EPHEMERAL VolumeConfig from the database.
 
         Returns:
             List of VolumeConfig dictionaries ready to be serialized to YAML
         """
         volume_configs = []
 
+        # Check if device has per-device EPHEMERAL overrides
+        device_has_ephemeral = device and (
+            device.ephemeral_max_size or device.ephemeral_min_size or device.ephemeral_disk_selector
+        )
+
         # Get all configured volumes from database
         volumes = volume_crud.get_volume_configs(db)
 
         for volume in volumes:
+            # Skip global EPHEMERAL if device has per-device overrides
+            if device_has_ephemeral and volume.name.value == "EPHEMERAL":
+                continue
+
             # Only generate VolumeConfig if size limits are configured
             if volume.max_size or volume.min_size or volume.disk_selector_match:
                 vol_config = {
@@ -89,6 +102,26 @@ class ConfigGenerator:
                     volume_configs.append(vol_config)
                     logger.info(f"Generated VolumeConfig for {volume.name.value}")
 
+        # Add per-device EPHEMERAL VolumeConfig if device has overrides
+        if device_has_ephemeral:
+            vol_config = {
+                'apiVersion': 'v1alpha1',
+                'kind': 'VolumeConfig',
+                'name': 'EPHEMERAL'
+            }
+            provisioning = {}
+            if device.ephemeral_disk_selector:
+                provisioning['diskSelector'] = {'match': device.ephemeral_disk_selector}
+            if device.ephemeral_min_size:
+                provisioning['minSize'] = device.ephemeral_min_size
+            if device.ephemeral_max_size:
+                provisioning['maxSize'] = device.ephemeral_max_size
+                provisioning['grow'] = False
+            if provisioning:
+                vol_config['provisioning'] = provisioning
+                volume_configs.append(vol_config)
+                logger.info(f"Generated per-device EPHEMERAL VolumeConfig for {device.mac_address}")
+
         return volume_configs
 
     def _get_kubernetes_version(self) -> Optional[str]:
@@ -106,6 +139,85 @@ class ConfigGenerator:
         try:
             settings = cluster_crud.get_cluster_settings(db)
             return settings.cni if settings else None
+        finally:
+            db.close()
+
+    def _get_system_extensions(self) -> List[str]:
+        """Get system extension images from cluster settings"""
+        import json
+        db = SessionLocal()
+        try:
+            cs = cluster_crud.get_cluster_settings(db)
+            if cs and cs.system_extensions:
+                return json.loads(cs.system_extensions)
+            return []
+        except Exception:
+            return []
+        finally:
+            db.close()
+
+    def _get_install_image(self) -> Optional[str]:
+        """Get the install image URL from cluster settings (set by factory service)."""
+        db = SessionLocal()
+        try:
+            cs = cluster_crud.get_cluster_settings(db)
+            return cs.install_image if cs else None
+        except Exception:
+            return None
+        finally:
+            db.close()
+
+    def _get_kernel_modules(self) -> List[str]:
+        """Get kernel module names from cluster settings"""
+        db = SessionLocal()
+        try:
+            cs = cluster_crud.get_cluster_settings(db)
+            if cs and cs.kernel_modules:
+                return json.loads(cs.kernel_modules)
+            return []
+        except Exception:
+            return []
+        finally:
+            db.close()
+
+    def _get_disk_partitions(self, device=None) -> List[dict]:
+        """Get extra disk partition configs based on EPHEMERAL sizing.
+
+        If EPHEMERAL has a maxSize cap AND Longhorn is installed, creates a
+        separate partition on the remaining disk space at /var/mnt/longhorn.
+
+        If EPHEMERAL grows to fill the disk, no separate partition is needed —
+        Longhorn uses /var/lib/longhorn inside the EPHEMERAL partition.
+
+        Returns list of dicts: [{"mountpoint": "/var/mnt/longhorn", "disk": ""}]
+        """
+        # Check if EPHEMERAL is capped (per-device overrides take priority)
+        ephemeral_capped = False
+        db = SessionLocal()
+        try:
+            if device and device.ephemeral_max_size:
+                ephemeral_capped = True
+            else:
+                volumes = volume_crud.get_volume_configs(db)
+                for v in volumes:
+                    if v.name.value == "EPHEMERAL" and v.max_size:
+                        ephemeral_capped = True
+                        break
+
+            if not ephemeral_capped:
+                # EPHEMERAL fills the disk — no separate partition needed
+                return []
+
+            # EPHEMERAL is capped — check if Longhorn is installed
+            from app.db.models import HelmRelease
+            longhorn = db.query(HelmRelease).filter(
+                HelmRelease.chart_name.contains("longhorn"),
+                HelmRelease.status != "uninstalling",
+            ).first()
+
+            if longhorn:
+                return [{"mountpoint": "/var/mnt/longhorn", "disk": ""}]
+            return []
         finally:
             db.close()
 
@@ -150,7 +262,11 @@ class ConfigGenerator:
         hostname: Optional[str] = None,
         ip_address: Optional[str] = None,
         save_to_disk: bool = True,
-        wipe_on_next_boot: bool = False
+        wipe_on_next_boot: bool = False,
+        install_disk: Optional[str] = None,
+        ephemeral_min_size: Optional[str] = None,
+        ephemeral_max_size: Optional[str] = None,
+        ephemeral_disk_selector: Optional[str] = None
     ) -> Tuple[str, Optional[Path]]:
         """
         Generate Talos configuration from raw parameters.
@@ -252,13 +368,45 @@ class ConfigGenerator:
                     config['cluster']['proxy']['disabled'] = True
                 logger.info(f"Set CNI to none (custom CNI: {cni}) for MAC {mac_address}")
 
+            # Override install disk if per-device setting provided
+            if install_disk:
+                if 'install' not in config['machine']:
+                    config['machine']['install'] = {}
+                config['machine']['install']['disk'] = install_disk
+                logger.info(f"Set per-device install disk to {install_disk} for MAC {mac_address}")
+
+            # Override install image with factory URL (or vanilla installer)
+            install_image = self._get_install_image()
+            if install_image:
+                if 'install' not in config['machine']:
+                    config['machine']['install'] = {}
+                config['machine']['install']['image'] = install_image
+                logger.info(f"Set install image to {install_image} for MAC {mac_address}")
+
+            # Inject kernel modules
+            kernel_modules = self._get_kernel_modules()
+            if kernel_modules:
+                config['machine']['kernel'] = {'modules': [{'name': m} for m in kernel_modules]}
+                logger.info(f"Added {len(kernel_modules)} kernel modules for MAC {mac_address}")
+
             # Generate multi-document YAML with VolumeConfigs
             config_docs = [config]
+
+            # Build a lightweight object for per-device storage overrides
+            class _StorageOverrides:
+                pass
+            storage_overrides = None
+            if ephemeral_min_size or ephemeral_max_size or ephemeral_disk_selector:
+                storage_overrides = _StorageOverrides()
+                storage_overrides.ephemeral_min_size = ephemeral_min_size
+                storage_overrides.ephemeral_max_size = ephemeral_max_size
+                storage_overrides.ephemeral_disk_selector = ephemeral_disk_selector
+                storage_overrides.mac_address = mac_address
 
             # Add VolumeConfig documents
             db = SessionLocal()
             try:
-                volume_configs = self._generate_volume_configs(db)
+                volume_configs = self._generate_volume_configs(db, device=storage_overrides)
                 if volume_configs:
                     config_docs.extend(volume_configs)
                     logger.info(f"Added {len(volume_configs)} VolumeConfig documents for MAC {mac_address}")
@@ -361,8 +509,8 @@ class ConfigGenerator:
             if device.wipe_on_next_boot:
                 if 'install' not in config['machine']:
                     config['machine']['install'] = {}
-                config['machine']['install']['force'] = True
-                logger.info(f"Set machine.install.force=true for MAC {device.mac_address} (wipe on next boot)")
+                config['machine']['install']['wipe'] = True
+                logger.info(f"Set machine.install.wipe=true for MAC {device.mac_address} (wipe on next boot)")
 
             # Update kubelet version to match Kubernetes version
             k8s_version = self._get_kubernetes_version()
@@ -385,13 +533,57 @@ class ConfigGenerator:
                     config['cluster']['proxy']['disabled'] = True
                 logger.info(f"Set CNI to none (custom CNI: {cni}) for device {device.mac_address}")
 
+            # Override install disk if device has per-device setting
+            if device.install_disk:
+                if 'install' not in config['machine']:
+                    config['machine']['install'] = {}
+                config['machine']['install']['disk'] = device.install_disk
+                logger.info(f"Set per-device install disk to {device.install_disk} for {device.mac_address}")
+
+            # Override install image with factory URL (or vanilla installer)
+            install_image = self._get_install_image()
+            if install_image:
+                if 'install' not in config['machine']:
+                    config['machine']['install'] = {}
+                config['machine']['install']['image'] = install_image
+                logger.info(f"Set install image to {install_image} for device {device.mac_address}")
+
+            # Inject kernel modules
+            kernel_modules = self._get_kernel_modules()
+            if kernel_modules:
+                config['machine']['kernel'] = {'modules': [{'name': m} for m in kernel_modules]}
+                logger.info(f"Added {len(kernel_modules)} kernel modules for device {device.mac_address}")
+
+            # Inject extra disk partitions (e.g., Longhorn storage)
+            disk_partitions = self._get_disk_partitions(device=device)
+            if disk_partitions:
+                # Get the install disk for this device (per-device or global)
+                install_disk = device.install_disk
+                if not install_disk:
+                    if 'install' in config.get('machine', {}) and 'disk' in config['machine']['install']:
+                        install_disk = config['machine']['install']['disk']
+                    else:
+                        install_disk = '/dev/sda'
+
+                disks_config = {}  # keyed by device path
+                for part in disk_partitions:
+                    disk = part.get('disk') or install_disk
+                    if disk not in disks_config:
+                        disks_config[disk] = {'device': disk, 'partitions': []}
+                    partition = {'mountpoint': part['mountpoint']}
+                    disks_config[disk]['partitions'].append(partition)
+
+                if disks_config:
+                    config['machine']['disks'] = list(disks_config.values())
+                    logger.info(f"Added {len(disk_partitions)} extra disk partition(s) for device {device.mac_address}")
+
             # Generate multi-document YAML with VolumeConfigs
             config_docs = [config]
 
-            # Add VolumeConfig documents
+            # Add VolumeConfig documents (with per-device overrides if set)
             db = SessionLocal()
             try:
-                volume_configs = self._generate_volume_configs(db)
+                volume_configs = self._generate_volume_configs(db, device=device)
                 if volume_configs:
                     config_docs.extend(volume_configs)
                     logger.info(f"Added {len(volume_configs)} VolumeConfig documents for device {device.mac_address}")

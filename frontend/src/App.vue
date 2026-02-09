@@ -1,66 +1,146 @@
 <template>
-  <div id="app">
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <h1 class="logo">Ktizo</h1>
+  <div id="app" class="flex min-h-screen">
+    <aside class="w-[250px] bg-sidebar-dark text-white flex flex-col shadow-[2px_0_4px_rgba(0,0,0,0.1)] fixed h-screen overflow-y-auto z-[1000]">
+      <div class="p-6 px-4 border-b border-white/10">
+        <h1 class="text-2xl font-bold text-white m-0">Ktizo</h1>
       </div>
-      <nav class="sidebar-nav">
-        <router-link to="/" class="nav-item">
-          <span class="nav-icon">🏠</span>
-          <span class="nav-text">Home</span>
+      <nav class="flex-1 py-4 overflow-y-auto">
+        <router-link to="/" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'home']" /></span>
+          <span class="text-[0.95rem]">Home</span>
         </router-link>
-        <router-link to="/network" class="nav-item">
-          <span class="nav-icon">🌐</span>
-          <span class="nav-text">Network Settings</span>
+
+        <!-- Kubernetes -->
+        <div class="mt-4 mb-1 px-4 text-[0.7rem] font-semibold uppercase tracking-wider text-white/40">Kubernetes</div>
+        <router-link to="/network" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'globe']" /></span>
+          <span class="text-[0.95rem]">Network Settings</span>
         </router-link>
-        <router-link to="/cluster" class="nav-item">
-          <span class="nav-icon">⚙️</span>
-          <span class="nav-text">Cluster Settings</span>
+        <router-link to="/pxe" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'rocket']" /></span>
+          <span class="text-[0.95rem]">PXE Settings</span>
         </router-link>
-        <router-link to="/storage" class="nav-item">
-          <span class="nav-icon">💾</span>
-          <span class="nav-text">Storage Settings</span>
+        <router-link to="/talos" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'microchip']" /></span>
+          <span class="text-[0.95rem]">Talos Settings</span>
         </router-link>
-        <router-link to="/devices" class="nav-item">
-          <span class="nav-icon">🖥️</span>
-          <span class="nav-text">Device Management</span>
+        <router-link to="/cluster" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'cog']" /></span>
+          <span class="text-[0.95rem]">Cluster Settings</span>
         </router-link>
-        <router-link to="/wiki" class="nav-item">
-          <span class="nav-icon">📚</span>
-          <span class="nav-text">Wiki</span>
+        <router-link to="/storage" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'hard-drive']" /></span>
+          <span class="text-[0.95rem]">Storage Settings</span>
         </router-link>
-        <router-link to="/terminal" class="nav-item">
-          <span class="nav-icon">💻</span>
-          <span class="nav-text">Terminal</span>
+        <router-link to="/devices" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'desktop']" /></span>
+          <span class="text-[0.95rem]">Device Management</span>
+        </router-link>
+        <router-link to="/terminal" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'terminal']" /></span>
+          <span class="text-[0.95rem]">Terminal</span>
+        </router-link>
+
+        <!-- Applications -->
+        <div class="mt-4 mb-1 px-4 text-[0.7rem] font-semibold uppercase tracking-wider text-white/40">Applications</div>
+        <router-link to="/modules" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'cubes']" /></span>
+          <span class="text-[0.95rem]">Modules</span>
+        </router-link>
+        <router-link v-if="longhornInstalled" to="/longhorn" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'hard-drive']" /></span>
+          <span class="text-[0.95rem]">Longhorn</span>
+        </router-link>
+
+        <!-- Ktizo -->
+        <div class="mt-4 mb-1 px-4 text-[0.7rem] font-semibold uppercase tracking-wider text-white/40">Ktizo</div>
+        <router-link to="/wiki" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'book']" /></span>
+          <span class="text-[0.95rem]">Wiki</span>
+        </router-link>
+        <router-link to="/troubleshooting" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'wrench']" /></span>
+          <span class="text-[0.95rem]">Troubleshooting</span>
+        </router-link>
+        <router-link to="/audit" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'clipboard-list']" /></span>
+          <span class="text-[0.95rem]">Audit Log</span>
+        </router-link>
+        <router-link to="/settings" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'sliders']" /></span>
+          <span class="text-[0.95rem]">Settings</span>
+        </router-link>
+        <router-link to="/about" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'circle-info']" /></span>
+          <span class="text-[0.95rem]">About</span>
         </router-link>
       </nav>
-      <div class="sidebar-footer">
-        <button @click="downloadKubeconfig" class="download-btn" title="Download Kubeconfig">
-          <span class="icon">⬇</span>
-          <span class="btn-text">Kubeconfig</span>
+      <div class="p-4 border-t border-white/10">
+        <button @click="downloadKubeconfig" class="flex items-center justify-center gap-2 w-full py-3 px-4 bg-white/10 text-white border border-white/20 rounded cursor-pointer text-[0.9rem] transition-all duration-300 hover:bg-white/20 hover:border-white/30" data-tooltip="Download Kubeconfig">
+          <font-awesome-icon :icon="['fas', 'download']" class="text-lg" />
+          <span>Kubeconfig</span>
         </button>
       </div>
     </aside>
-    <main class="main-content">
+    <main class="flex-1 ml-[250px] p-8 max-w-[calc(100%-250px)]">
       <router-view :key="$route.path" />
     </main>
+
+    <!-- WebSocket disconnected overlay -->
+    <div v-if="!wsConnected" class="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center" style="backdrop-filter: blur(4px);">
+      <div class="bg-white rounded-lg p-8 shadow-2xl text-center max-w-sm">
+        <div class="ws-spinner mx-auto mb-4"></div>
+        <h3 class="text-lg font-semibold text-gray-900 m-0 mb-2">Connection Lost</h3>
+        <p class="text-gray-500 text-sm m-0">Attempting to reconnect to the server...</p>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
 import websocketService from './services/websocket'
+import apiService from './services/api'
+import { useToast } from 'vue-toastification'
 
 export default {
   name: 'App',
+  data() {
+    return {
+      wsConnected: true,
+      longhornInstalled: false,
+    }
+  },
   mounted() {
+    this.toast = useToast()
+    this._unsubState = websocketService.onStateChange((connected) => {
+      this.wsConnected = connected
+      if (connected) this.checkLonghorn()
+    })
     // Initialize shared WebSocket connection
     websocketService.connect()
+    // Listen for module install/uninstall events to update sidebar
+    this._unsubWs = websocketService.subscribe((msg) => {
+      if (msg.type === 'module_status') this.checkLonghorn()
+    })
+    this.checkLonghorn()
   },
   beforeUnmount() {
+    if (this._unsubState) this._unsubState()
+    if (this._unsubWs) this._unsubWs()
     // Disconnect WebSocket when app unmounts
     websocketService.disconnect()
   },
   methods: {
+    async checkLonghorn() {
+      try {
+        const modules = await apiService.getModules()
+        this.longhornInstalled = (modules || []).some(
+          m => m.chart_name?.includes('longhorn') && m.status !== 'uninstalling'
+        )
+      } catch {
+        // Silently ignore — WS may not be ready yet
+      }
+    },
     async downloadKubeconfig() {
       try {
         // Use same hostname as current page, with port 8000
@@ -91,7 +171,7 @@ export default {
         document.body.removeChild(a)
       } catch (error) {
         console.error('Failed to download kubeconfig:', error)
-        alert(error.message || 'Failed to download kubeconfig. Make sure cluster settings are configured and the cluster is running.')
+        this.toast.error(error.message || 'Failed to download kubeconfig. Make sure cluster settings are configured and the cluster is running.')
       }
     }
   }
@@ -99,69 +179,7 @@ export default {
 </script>
 
 <style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  background: #f5f5f5;
-}
-
-#app {
-  display: flex;
-  min-height: 100vh;
-}
-
-.sidebar {
-  width: 250px;
-  background: #2c3e50;
-  color: white;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 2px 0 4px rgba(0,0,0,0.1);
-  position: fixed;
-  height: 100vh;
-  overflow-y: auto;
-  z-index: 1000;
-}
-
-.sidebar-header {
-  padding: 1.5rem 1rem;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-}
-
-.logo {
-  font-size: 1.5rem;
-  font-weight: bold;
-  color: white;
-  margin: 0;
-}
-
-.sidebar-nav {
-  flex: 1;
-  padding: 1rem 0;
-  overflow-y: auto;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  color: rgba(255,255,255,0.8);
-  text-decoration: none;
-  transition: all 0.3s;
-  border-left: 3px solid transparent;
-}
-
-.nav-item:hover {
-  background: rgba(255,255,255,0.1);
-  color: white;
-}
-
+/* Active nav item styling - needs global scope for router-link-active */
 .nav-item.router-link-active {
   background: rgba(255,255,255,0.15);
   color: white;
@@ -169,84 +187,16 @@ body {
   font-weight: 500;
 }
 
-.nav-icon {
-  font-size: 1.2rem;
-  width: 24px;
-  text-align: center;
-  flex-shrink: 0;
+.ws-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #e5e7eb;
+  border-top-color: #4f46e5;
+  border-radius: 50%;
+  animation: ws-spin 0.8s linear infinite;
 }
 
-.nav-text {
-  font-size: 0.95rem;
-}
-
-.sidebar-footer {
-  padding: 1rem;
-  border-top: 1px solid rgba(255,255,255,0.1);
-}
-
-.download-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.75rem 1rem;
-  background: rgba(255,255,255,0.1);
-  color: white;
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: all 0.3s;
-}
-
-.download-btn:hover {
-  background: rgba(255,255,255,0.2);
-  border-color: rgba(255,255,255,0.3);
-}
-
-.download-btn .icon {
-  font-size: 1.1rem;
-}
-
-.main-content {
-  flex: 1;
-  margin-left: 250px;
-  padding: 2rem;
-  max-width: calc(100% - 250px);
-}
-
-/* Responsive design for smaller screens */
-@media (max-width: 768px) {
-  .sidebar {
-    width: 200px;
-  }
-  
-  .main-content {
-    margin-left: 200px;
-    max-width: calc(100% - 200px);
-    padding: 1rem;
-  }
-  
-  .nav-text {
-    font-size: 0.85rem;
-  }
-}
-
-@media (max-width: 640px) {
-  .sidebar {
-    transform: translateX(-100%);
-    transition: transform 0.3s;
-  }
-  
-  .sidebar.open {
-    transform: translateX(0);
-  }
-  
-  .main-content {
-    margin-left: 0;
-    max-width: 100%;
-  }
+@keyframes ws-spin {
+  to { transform: rotate(360deg); }
 }
 </style>

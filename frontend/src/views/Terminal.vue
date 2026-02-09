@@ -1,14 +1,21 @@
 <template>
-  <div v-if="isActive" class="terminal-page" :class="{ hidden: !isActive }">
-    <div class="terminal-header">
-      <span class="terminal-title">Terminal</span>
-      <span :class="['status-dot', connectionStatus]"></span>
-      <span class="status-text">{{ statusText }}</span>
-      <button v-if="connectionStatus === 'disconnected'" @click="connect" class="reconnect-btn">
+  <div v-if="isActive" class="flex flex-col h-[calc(100vh-4rem)] min-h-[400px] bg-[#1a1b26] -m-8 p-0 w-[calc(100vw-250px)] min-w-[calc(100vw-250px)] max-w-[calc(100vw-250px)] overflow-hidden box-border relative z-[1]" :class="{ 'hidden-terminal': !isActive }">
+    <div class="flex items-center gap-2 px-4 py-2 bg-[#24283b] border-b border-[#414868] shrink-0">
+      <span class="text-[#c0caf5] font-semibold text-[0.9rem] mr-2">Terminal</span>
+      <span
+        class="w-2 h-2 rounded-full"
+        :class="{
+          'bg-[#9ece6a]': connectionStatus === 'connected',
+          'bg-[#e0af68] animate-pulse-terminal': connectionStatus === 'connecting',
+          'bg-[#f7768e]': connectionStatus === 'disconnected'
+        }"
+      ></span>
+      <span class="text-[#a9b1d6] text-[0.8rem]">{{ statusText }}</span>
+      <button v-if="connectionStatus === 'disconnected'" @click="connect" class="ml-auto px-3 py-1 bg-[#7aa2f7] text-[#1a1b26] border-none rounded cursor-pointer text-[0.8rem] font-semibold hover:bg-[#89b4fa]">
         Reconnect
       </button>
     </div>
-    <div ref="terminalContainer" class="terminal-container"></div>
+    <div ref="terminalContainer" class="flex-1 p-1 overflow-hidden w-full min-w-full max-w-full min-h-0 relative box-border"></div>
   </div>
 </template>
 
@@ -43,13 +50,10 @@ export default {
     }
   },
   mounted() {
-    // Only initialize if we're actually on the terminal route
     if (this.$route.path === '/terminal') {
       this.isActive = true
       this.initTerminal()
       this.connect()
-
-      // Wait for layout to stabilize before setting up resize observer
       this.$nextTick(() => {
         setTimeout(() => {
           this.setupResizeObserver()
@@ -63,19 +67,16 @@ export default {
     '$route': {
       immediate: true,
       handler(to, from) {
-        // Hide terminal when navigating away
         if (to.path !== '/terminal') {
           this.isActive = false
           this.cleanup()
-          // Force hide immediately
           this.$nextTick(() => {
-            const terminalPage = document.querySelector('.terminal-page')
+            const terminalPage = this.$el
             if (terminalPage && terminalPage.parentElement) {
               terminalPage.style.cssText = 'display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; position: absolute !important; left: -9999px !important;'
             }
           })
         } else if (to.path === '/terminal') {
-          // Show and initialize when navigating to terminal
           this.isActive = true
           this.$nextTick(() => {
             if (!this.term) {
@@ -126,27 +127,24 @@ export default {
       this.fitAddon = new FitAddon()
       this.term.loadAddon(this.fitAddon)
       this.term.open(this.$refs.terminalContainer)
-      
-      // Fit terminal after layout stabilizes - use requestAnimationFrame for better timing
+
       this.$nextTick(() => {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            // Force full viewport width (minus sidebar)
             if (this.$refs.terminalContainer) {
               const container = this.$refs.terminalContainer
-              const sidebar = document.querySelector('.sidebar')
+              const sidebar = document.querySelector('aside')
               const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 250
               const viewportWidth = window.innerWidth
               const availableWidth = viewportWidth - sidebarWidth
-              
-              // Set terminal page and container to full available width
-              const terminalPage = container.closest('.terminal-page')
+
+              const terminalPage = container.closest('div')
               if (terminalPage) {
                 terminalPage.style.width = `${availableWidth}px`
                 terminalPage.style.minWidth = `${availableWidth}px`
                 terminalPage.style.maxWidth = `${availableWidth}px`
               }
-              
+
               container.style.width = `${availableWidth}px`
               container.style.minWidth = `${availableWidth}px`
               container.style.maxWidth = `${availableWidth}px`
@@ -169,22 +167,20 @@ export default {
       })
     },
     connect() {
-      // Only connect if not already connected or connecting
       if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
         return
       }
-      
+
       this.connectionStatus = 'connecting'
 
       const hostname = window.location.hostname || 'localhost'
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      
+
       try {
         this.ws = new WebSocket(`${wsProtocol}//${hostname}:8000/ws/terminal`)
 
         this.ws.onopen = () => {
           this.connectionStatus = 'connected'
-          // Send initial size after a brief delay
           setTimeout(() => {
             this.safeFit()
             if (this.fitAddon) {
@@ -204,12 +200,9 @@ export default {
         }
 
         this.ws.onclose = (event) => {
-          // Only set to disconnected if it was previously connected
-          // If it was connecting, give it a moment to retry
           if (this.connectionStatus === 'connected') {
             this.connectionStatus = 'disconnected'
           } else if (this.connectionStatus === 'connecting') {
-            // If connection failed during initial connect, wait a bit before showing disconnected
             setTimeout(() => {
               if (this.connectionStatus === 'connecting') {
                 this.connectionStatus = 'disconnected'
@@ -219,10 +212,7 @@ export default {
         }
 
         this.ws.onerror = (error) => {
-          // Don't immediately set to disconnected - wait to see if onclose fires
-          // This prevents showing disconnected during initial connection attempts
           console.warn('WebSocket error:', error)
-          // Only set to disconnected if we've been trying for a while
           setTimeout(() => {
             if (this.connectionStatus === 'connecting' && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
               this.connectionStatus = 'disconnected'
@@ -231,85 +221,77 @@ export default {
         }
       } catch (error) {
         console.error('Failed to create WebSocket:', error)
-        // Only set to disconnected after a delay to avoid flickering
         setTimeout(() => {
           this.connectionStatus = 'disconnected'
         }, 1000)
       }
     },
     setupResizeObserver() {
-      // Use a debounced resize observer with guard to prevent loops
       this.resizeObserver = new ResizeObserver((entries) => {
         if (this.isFitting) return
-        
+
         clearTimeout(this.fitTimeout)
         this.fitTimeout = setTimeout(() => {
           if (!this.isFitting && this.fitAddon && this.$refs.terminalContainer) {
-            // Recalculate width on resize
-            const sidebar = document.querySelector('.sidebar')
+            const sidebar = document.querySelector('aside')
             const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 250
             const viewportWidth = window.innerWidth
             const availableWidth = viewportWidth - sidebarWidth
-            
+
             const container = this.$refs.terminalContainer
-            const terminalPage = container.closest('.terminal-page')
+            const terminalPage = container.parentElement
             if (terminalPage) {
               terminalPage.style.width = `${availableWidth}px`
               terminalPage.style.minWidth = `${availableWidth}px`
               terminalPage.style.maxWidth = `${availableWidth}px`
             }
-            
+
             container.style.width = `${availableWidth}px`
             container.style.minWidth = `${availableWidth}px`
             container.style.maxWidth = `${availableWidth}px`
-            
+
             const rect = container.getBoundingClientRect()
-            // Only fit if container has reasonable dimensions
             if (rect.width > 100 && rect.height > 100) {
               this.safeFit()
             }
           }
         }, 200)
       })
-      
-      // Observe window resize
+
       this.handleResize = () => {
         if (this.$refs.terminalContainer && !this.isFitting) {
-          const sidebar = document.querySelector('.sidebar')
+          const sidebar = document.querySelector('aside')
           const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 250
           const viewportWidth = window.innerWidth
           const availableWidth = viewportWidth - sidebarWidth
-          
+
           const container = this.$refs.terminalContainer
-          const terminalPage = container.closest('.terminal-page')
+          const terminalPage = container.parentElement
           if (terminalPage) {
             terminalPage.style.width = `${availableWidth}px`
             terminalPage.style.minWidth = `${availableWidth}px`
             terminalPage.style.maxWidth = `${availableWidth}px`
           }
-          
+
           container.style.width = `${availableWidth}px`
           container.style.minWidth = `${availableWidth}px`
           container.style.maxWidth = `${availableWidth}px`
-          
+
           this.safeFit()
         }
       }
-      
+
       window.addEventListener('resize', this.handleResize)
-      
-      const mainContent = document.querySelector('.main-content')
+
+      const mainContent = document.querySelector('main')
       if (mainContent) {
         this.resizeObserver.observe(mainContent)
       }
     },
     cleanup() {
-      // Hide terminal immediately - set flag first
       this.isActive = false
-      
-      // Force DOM update
+
       this.$nextTick(() => {
-        // Clean up all resources when leaving the terminal page
       if (this.fitTimeout) {
         clearTimeout(this.fitTimeout)
         this.fitTimeout = null
@@ -329,28 +311,17 @@ export default {
       if (this.fitAddon) {
         this.fitAddon = null
       }
-      
-      // Remove window resize listener if it exists
+
       if (this.handleResize) {
         window.removeEventListener('resize', this.handleResize)
         this.handleResize = null
       }
-      
-      // Force cleanup of terminal container
+
       if (this.$refs.terminalContainer) {
         const container = this.$refs.terminalContainer
         if (container) {
           container.innerHTML = ''
         }
-      }
-      
-      // Force hide the terminal page element if it still exists
-      const terminalPage = document.querySelector('.terminal-page')
-      if (terminalPage) {
-        terminalPage.style.display = 'none'
-        terminalPage.style.visibility = 'hidden'
-        terminalPage.style.opacity = '0'
-        terminalPage.style.pointerEvents = 'none'
       }
       })
     },
@@ -358,30 +329,28 @@ export default {
       if (this.isFitting || !this.fitAddon || !this.$refs.terminalContainer) {
         return
       }
-      
+
       this.isFitting = true
       const container = this.$refs.terminalContainer
-      
-      // Calculate full available width (viewport - sidebar)
-      const sidebar = document.querySelector('.sidebar')
+
+      const sidebar = document.querySelector('aside')
       const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 250
       const viewportWidth = window.innerWidth
       const availableWidth = viewportWidth - sidebarWidth
-      
-      // Force full width
-      const terminalPage = container.closest('.terminal-page')
+
+      const terminalPage = container.parentElement
       if (terminalPage) {
         terminalPage.style.width = `${availableWidth}px`
         terminalPage.style.minWidth = `${availableWidth}px`
         terminalPage.style.maxWidth = `${availableWidth}px`
       }
-      
+
       container.style.width = `${availableWidth}px`
       container.style.minWidth = `${availableWidth}px`
       container.style.maxWidth = `${availableWidth}px`
-      
+
       const rect = container.getBoundingClientRect()
-      
+
       if (rect.width > 100 && rect.height > 100) {
         try {
           this.fitAddon.fit()
@@ -389,8 +358,7 @@ export default {
           console.warn('Terminal fit error:', e)
         }
       }
-      
-      // Reset flag after a brief delay
+
       setTimeout(() => {
         this.isFitting = false
       }, 50)
@@ -400,26 +368,8 @@ export default {
 </script>
 
 <style scoped>
-.terminal-page {
-  display: flex;
-  flex-direction: column;
-  height: calc(100vh - 4rem);
-  min-height: 400px;
-  background: #1a1b26;
-  margin: -2rem;
-  padding: 0;
-  width: calc(100vw - 250px);
-  min-width: calc(100vw - 250px);
-  max-width: calc(100vw - 250px);
-  overflow: hidden;
-  box-sizing: border-box;
-  position: relative;
-  z-index: 1;
-}
-
-/* Ensure terminal is completely hidden when not active */
-.terminal-page.hidden,
-.terminal-page[style*="display: none"] {
+/* Hidden terminal state */
+.hidden-terminal {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
@@ -432,105 +382,32 @@ export default {
   overflow: hidden !important;
 }
 
-.terminal-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: #24283b;
-  border-bottom: 1px solid #414868;
-  flex-shrink: 0;
-}
-
-.terminal-title {
-  color: #c0caf5;
-  font-weight: 600;
-  font-size: 0.9rem;
-  margin-right: 0.5rem;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.status-dot.connected {
-  background: #9ece6a;
-}
-
-.status-dot.connecting {
-  background: #e0af68;
-  animation: pulse 1s infinite;
-}
-
-.status-dot.disconnected {
-  background: #f7768e;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.status-text {
-  color: #a9b1d6;
-  font-size: 0.8rem;
-}
-
-.reconnect-btn {
-  margin-left: auto;
-  padding: 0.25rem 0.75rem;
-  background: #7aa2f7;
-  color: #1a1b26;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.reconnect-btn:hover {
-  background: #89b4fa;
-}
-
-.terminal-container {
-  flex: 1;
-  padding: 4px;
-  overflow: hidden;
-  width: 100%;
-  min-width: 100%;
-  max-width: 100%;
-  min-height: 0;
-  position: relative;
-  box-sizing: border-box;
-}
-
-.terminal-container :deep(.xterm) {
+/* xterm.js overrides - must remain scoped deep */
+:deep(.xterm) {
   height: 100% !important;
   width: 100% !important;
   max-width: 100% !important;
   box-sizing: border-box;
 }
 
-.terminal-container :deep(.xterm-viewport) {
+:deep(.xterm-viewport) {
   width: 100% !important;
   max-width: 100% !important;
   box-sizing: border-box;
 }
 
-.terminal-container :deep(.xterm-screen) {
+:deep(.xterm-screen) {
   width: 100% !important;
   max-width: 100% !important;
   box-sizing: border-box;
 }
 
-.terminal-container :deep(.xterm-scroll-area) {
+:deep(.xterm-scroll-area) {
   width: 100% !important;
   max-width: 100% !important;
 }
 
-.terminal-container :deep(.xterm-rows) {
+:deep(.xterm-rows) {
   width: 100% !important;
   max-width: 100% !important;
 }

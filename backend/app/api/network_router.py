@@ -6,6 +6,8 @@ from app.crud import network as network_crud
 from app.models.network import DNSMasqConfig
 from app.services.template_service import template_service
 from app.services.talos_downloader import talos_downloader
+from app.services.audit_service import log_action
+import json
 
 router = APIRouter()
 
@@ -170,6 +172,9 @@ async def update_network_settings(settings_id: int, settings: NetworkSettingsUpd
         )
 
     print(f"Auto-applied network settings: regenerated dnsmasq.conf and boot.ipxe")
+    await log_action(db, "updated_network_settings", "Network Settings",
+        json.dumps({"server_ip": updated.server_ip, "dhcp_mode": updated.dhcp_mode}),
+        "network_settings", str(settings_id))
     return updated
 
 @router.post("/settings/apply")
@@ -234,6 +239,9 @@ async def apply_network_settings(db: Session = Depends(get_db)):
 
     if errors:
         raise HTTPException(status_code=500, detail="; ".join(errors))
+
+    await log_action(db, "applied_network_settings", "Network Settings",
+        json.dumps({"output_path": output_path}), "network_settings", None)
 
     return {
         "message": f"Network settings applied successfully. DNSMASQ config written to {output_path}. boot.ipxe regenerated. DNSMASQ will reload automatically.",

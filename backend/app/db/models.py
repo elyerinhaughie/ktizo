@@ -61,6 +61,11 @@ class ClusterSettings(Base):
     # Installation configuration
     install_disk = Column(String, default="/dev/sda")
     install_image = Column(String, default="ghcr.io/siderolabs/installer:latest")
+    factory_schematic_id = Column(String, nullable=True)  # Cached Talos Factory schematic ID
+
+    # Talos machine config extras (JSON arrays stored as text)
+    system_extensions = Column(Text, nullable=True)  # JSON: ["ghcr.io/siderolabs/iscsi-tools:v0.1.6", ...]
+    kernel_modules = Column(Text, nullable=True)      # JSON: ["drbd", "btrfs", ...]
 
     # Network configuration
     pod_subnet = Column(String, default="10.244.0.0/16")
@@ -131,6 +136,12 @@ class Device(Base):
     notes = Column(Text, nullable=True)
     wipe_on_next_boot = Column(Boolean, default=False, nullable=False)
 
+    # Per-device storage overrides (None = use global defaults)
+    install_disk = Column(String, nullable=True)
+    ephemeral_min_size = Column(String, nullable=True)
+    ephemeral_max_size = Column(String, nullable=True)
+    ephemeral_disk_selector = Column(String, nullable=True)
+
     # Timestamps
     first_seen = Column(DateTime(timezone=True), server_default=func.now())
     approved_at = Column(DateTime(timezone=True), nullable=True)
@@ -139,3 +150,59 @@ class Device(Base):
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class HelmRelease(Base):
+    __tablename__ = "helm_releases"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Release identification
+    release_name = Column(String, unique=True, nullable=False, index=True)
+    namespace = Column(String, nullable=False, default="default")
+
+    # Chart source
+    repo_name = Column(String, nullable=True)
+    repo_url = Column(String, nullable=True)
+    chart_name = Column(String, nullable=False)
+    chart_version = Column(String, nullable=True)
+
+    # Catalog reference (null for custom/generic charts)
+    catalog_id = Column(String, nullable=True)
+
+    # Configuration
+    values_yaml = Column(Text, nullable=True)
+    values_json = Column(Text, nullable=True)
+
+    # State tracking
+    status = Column(String, nullable=False, default="pending")
+    status_message = Column(Text, nullable=True)
+    log_output = Column(Text, nullable=True)
+    revision = Column(Integer, nullable=True)
+    app_version = Column(String, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    deployed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class HelmRepository(Base):
+    __tablename__ = "helm_repositories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False)
+    url = Column(String, nullable=False)
+    added_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    action = Column(String, nullable=False)
+    page = Column(String, nullable=False)
+    details = Column(Text, nullable=True)
+    entity_type = Column(String, nullable=True)
+    entity_id = Column(String, nullable=True)
