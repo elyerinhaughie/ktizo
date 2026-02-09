@@ -17,6 +17,7 @@
     "axios": "^1.6.2",
     "cytoscape": "^3.33.1",
     "cytoscape-dagre": "^2.5.0",
+    "cytoscape-fcose": "^2.2.0",
     "dagre": "^0.8.5",
     "vue": "^3.4.0",
     "vue-router": "^4.2.5",

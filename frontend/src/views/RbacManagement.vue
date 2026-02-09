@@ -22,7 +22,7 @@
       </div>
       <div class="flex items-center gap-2 ml-auto">
         <label class="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
-          <input type="checkbox" v-model="showSystem" @change="onFilterChange" class="cursor-pointer" />
+          <input type="checkbox" v-model="showSystem" class="cursor-pointer" />
           Show system resources
         </label>
       </div>
@@ -695,6 +695,10 @@ export default {
   watch: {
     /** Reload data when the active tab changes to ensure fresh counts */
     activeTab() {
+      this.loadAllRbacData()
+    },
+    /** Reload data when system resource visibility is toggled */
+    showSystem() {
       this.loadAllRbacData()
     },
   },

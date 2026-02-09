@@ -7,11 +7,16 @@
         style="background-color: var(--th-bg-card, #fff); border-color: var(--th-border, #e5e7eb); color: var(--th-text-secondary, #6b7280);">
         <font-awesome-icon :icon="['fas', 'arrows-rotate']" />
       </button>
-      <button @click="toggleLayout" :title="`Layout: ${layoutName}`"
-        class="w-8 h-8 flex items-center justify-center rounded bg-white/90 border border-gray-200 text-gray-600 hover:bg-gray-100 cursor-pointer text-sm shadow-sm"
+      <select v-model="layoutName" @change="runLayout" title="Layout algorithm"
+        class="h-8 pl-2 pr-6 rounded border text-xs cursor-pointer shadow-sm appearance-none"
         style="background-color: var(--th-bg-card, #fff); border-color: var(--th-border, #e5e7eb); color: var(--th-text-secondary, #6b7280);">
-        <font-awesome-icon :icon="['fas', 'layer-group']" />
-      </button>
+        <option value="dagre">Hierarchical</option>
+        <option value="fcose">Clustered</option>
+        <option value="cose">Force-directed</option>
+        <option value="concentric">Concentric</option>
+        <option value="breadthfirst">Tree</option>
+        <option value="circle">Circle</option>
+      </select>
     </div>
 
     <!-- Legend -->
@@ -128,10 +133,12 @@
  */
 import cytoscape from 'cytoscape'
 import dagre from 'cytoscape-dagre'
+import fcose from 'cytoscape-fcose'
 import { buildElements } from '../services/rbacGraphBuilder'
 
-// Register the dagre layout algorithm with Cytoscape
+// Register layout extensions with Cytoscape
 cytoscape.use(dagre)
+cytoscape.use(fcose)
 
 /**
  * Color palette for each RBAC node type.
@@ -188,8 +195,8 @@ export default {
     return {
       /** @type {cytoscape.Core|null} The Cytoscape.js instance */
       cy: null,
-      /** @type {'dagre'|'cose'} Current layout algorithm name */
-      layoutName: 'dagre',
+      /** @type {'dagre'|'fcose'|'cose'|'concentric'|'breadthfirst'|'circle'} Current layout algorithm name */
+      layoutName: 'fcose',
       /** @type {Object|null} Data object of the currently selected node */
       selected: null,
       /** @type {Array<Object>} Edge metadata for the selected node's connections */
@@ -478,38 +485,85 @@ export default {
     },
 
     /**
-     * Executes the current layout algorithm (dagre or cose) on all graph elements.
-     * Dagre produces a hierarchical left-to-right layout ideal for directed graphs.
-     * CoSE is a force-directed layout that works better for highly connected graphs.
+     * Executes the current layout algorithm on all graph elements.
+     * Supports multiple layout algorithms suited to different graph sizes and structures.
      */
     runLayout() {
       if (!this.cy || this.cy.nodes().length === 0) return
 
-      const opts = this.layoutName === 'dagre'
-        ? {
-            name: 'dagre',
-            rankDir: 'LR',   // Left-to-right: subjects on left, roles on right
-            nodeSep: 40,
-            rankSep: 80,
-            edgeSep: 20,
-            animate: true,
-            animationDuration: 300,
-            fit: true,
-            padding: 30,
-          }
-        : {
-            name: 'cose',
-            animate: true,
-            animationDuration: 300,
-            fit: true,
-            padding: 30,
-            nodeRepulsion: 8000,
-            idealEdgeLength: 120,
-            edgeElasticity: 100,
-            gravity: 0.25,
-          }
+      const layoutConfigs = {
+        dagre: {
+          name: 'dagre',
+          rankDir: 'LR',
+          nodeSep: 40,
+          rankSep: 80,
+          edgeSep: 20,
+          animate: true,
+          animationDuration: 300,
+          fit: true,
+          padding: 30,
+        },
+        fcose: {
+          name: 'fcose',
+          quality: 'default',
+          animate: true,
+          animationDuration: 300,
+          fit: true,
+          padding: 30,
+          nodeSeparation: 75,
+          idealEdgeLength: 100,
+          nodeRepulsion: 4500,
+          edgeElasticity: 0.45,
+          gravity: 0.25,
+          gravityRange: 3.8,
+          nestingFactor: 0.1,
+          numIter: 2500,
+          tile: true,
+          tilingPaddingVertical: 10,
+          tilingPaddingHorizontal: 10,
+        },
+        cose: {
+          name: 'cose',
+          animate: true,
+          animationDuration: 300,
+          fit: true,
+          padding: 30,
+          nodeRepulsion: 8000,
+          idealEdgeLength: 120,
+          edgeElasticity: 100,
+          gravity: 0.25,
+        },
+        concentric: {
+          name: 'concentric',
+          animate: true,
+          animationDuration: 300,
+          fit: true,
+          padding: 30,
+          minNodeSpacing: 40,
+          concentric: (node) => node.connectedEdges().length,
+          levelWidth: () => 2,
+        },
+        breadthfirst: {
+          name: 'breadthfirst',
+          directed: true,
+          animate: true,
+          animationDuration: 300,
+          fit: true,
+          padding: 30,
+          spacingFactor: 1.2,
+          circle: false,
+        },
+        circle: {
+          name: 'circle',
+          animate: true,
+          animationDuration: 300,
+          fit: true,
+          padding: 30,
+          spacingFactor: 1.5,
+        },
+      }
 
-      this.cy.layout(opts).run()
+      this.cy.layout(layoutConfigs[this.layoutName] || layoutConfigs.fcose).run()
     },
 
     /**
@@ -517,14 +571,6 @@ export default {
      */
     fitGraph() {
       if (this.cy) this.cy.fit(undefined, 30)
-    },
-
-    /**
-     * Toggles between dagre (hierarchical) and cose (force-directed) layout algorithms.
-     */
-    toggleLayout() {
-      this.layoutName = this.layoutName === 'dagre' ? 'cose' : 'dagre'
-      this.runLayout()
     },
 
     /**
@@ -588,14 +634,8 @@ export default {
 
       // Re-layout just the visible elements for a compact, readable subgraph
       visible.layout({
-        name: 'dagre',
-        rankDir: 'LR',
-        nodeSep: 30,
-        rankSep: 60,
-        animate: true,
-        animationDuration: 300,
-        fit: true,
-        padding: 40,
+        name: 'dagre', rankDir: 'LR', nodeSep: 30, rankSep: 60,
+        animate: true, animationDuration: 300, fit: true, padding: 40,
       }).run()
 
       // Emit related node IDs so the parent can highlight matching list items
