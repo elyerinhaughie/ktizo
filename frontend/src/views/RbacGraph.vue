@@ -111,12 +111,32 @@
 </template>
 
 <script>
+/**
+ * @component RbacGraph
+ * @description Interactive Cytoscape.js graph visualization of Kubernetes RBAC relationships.
+ *
+ * Renders ServiceAccounts, Roles, ClusterRoles as nodes and RoleBindings/ClusterRoleBindings
+ * as directed edges. Namespace nodes act as compound parents to visually group resources.
+ *
+ * Features:
+ *   - Dagre (hierarchical left-to-right) and CoSE (force-directed) layout algorithms
+ *   - Click-to-select with connected component isolation (hides unrelated nodes)
+ *   - Detail side panel showing bound roles/rules/namespace contents
+ *   - Responsive resizing via ResizeObserver
+ *   - Dynamic theme adaptation via MutationObserver on `data-theme` attribute
+ *   - Bidirectional focus sync with parent via focusNodeId prop and node-selected emit
+ */
 import cytoscape from 'cytoscape'
 import dagre from 'cytoscape-dagre'
 import { buildElements } from '../services/rbacGraphBuilder'
 
+// Register the dagre layout algorithm with Cytoscape
 cytoscape.use(dagre)
 
+/**
+ * Color palette for each RBAC node type.
+ * @type {Object<string, {bg: string, border: string, text: string}>}
+ */
 const NODE_COLORS = {
   serviceaccount: { bg: '#3b82f6', border: '#2563eb', text: '#ffffff' },
   role:           { bg: '#8b5cf6', border: '#7c3aed', text: '#ffffff' },
@@ -124,6 +144,11 @@ const NODE_COLORS = {
   namespace:      { bg: '#e5e7eb', border: '#9ca3af', text: '#374151' },
 }
 
+/**
+ * Cytoscape shape mapping for each RBAC node type.
+ * Distinct shapes help differentiate node types at a glance.
+ * @type {Object<string, string>}
+ */
 const NODE_SHAPES = {
   serviceaccount: 'round-rectangle',
   role:           'rectangle',
@@ -133,6 +158,16 @@ const NODE_SHAPES = {
 
 export default {
   name: 'RbacGraph',
+
+  /**
+   * @prop {Array<Object>} serviceAccounts - Kubernetes ServiceAccount objects
+   * @prop {Array<Object>} roles - Kubernetes Role objects
+   * @prop {Array<Object>} clusterRoles - Kubernetes ClusterRole objects
+   * @prop {Array<Object>} roleBindings - Kubernetes RoleBinding objects
+   * @prop {Array<Object>} clusterRoleBindings - Kubernetes ClusterRoleBinding objects
+   * @prop {boolean} showSystem - Whether to include system/built-in resources
+   * @prop {string|null} focusNodeId - Node ID to programmatically select and zoom to
+   */
   props: {
     serviceAccounts: { type: Array, default: () => [] },
     roles: { type: Array, default: () => [] },
@@ -142,24 +177,48 @@ export default {
     showSystem: { type: Boolean, default: false },
     focusNodeId: { type: String, default: null },
   },
+
+  /**
+   * @emits node-selected - Fired with the selected node's ID (or null on deselect)
+   * @emits related-nodes - Fired with a Set of node IDs in the selected node's connected component
+   */
   emits: ['node-selected', 'related-nodes'],
+
   data() {
     return {
+      /** @type {cytoscape.Core|null} The Cytoscape.js instance */
       cy: null,
+      /** @type {'dagre'|'cose'} Current layout algorithm name */
       layoutName: 'dagre',
+      /** @type {Object|null} Data object of the currently selected node */
       selected: null,
+      /** @type {Array<Object>} Edge metadata for the selected node's connections */
       selectedEdges: [],
+      /** @type {{serviceaccounts: number, roles: number}} Child counts when a namespace is selected */
       selectedChildren: { serviceaccounts: 0, roles: 0 },
+      /** @type {boolean} True when the graph has no elements to display */
       isEmpty: false,
+      /** @type {ResizeObserver|null} Watches container size changes to resize the canvas */
       resizeObserver: null,
+      /** @type {MutationObserver|null} Watches data-theme attribute for dark/light mode switches */
       themeObserver: null,
     }
   },
+
   computed: {
+    /**
+     * Human-readable label for the selected node's Kubernetes kind.
+     * @returns {string}
+     */
     selectedTypeLabel() {
       if (!this.selected) return ''
       return { serviceaccount: 'ServiceAccount', role: 'Role', clusterrole: 'ClusterRole', namespace: 'Namespace' }[this.selected.nodeType] || ''
     },
+
+    /**
+     * Tailwind CSS classes for the selected node's type badge.
+     * @returns {string}
+     */
     selectedBadgeClass() {
       if (!this.selected) return ''
       return {
@@ -170,13 +229,20 @@ export default {
       }[this.selected.nodeType] || 'bg-gray-100 text-gray-600'
     },
   },
+
   watch: {
+    // Rebuild the graph whenever any RBAC data prop changes
     serviceAccounts() { this.rebuild() },
     roles() { this.rebuild() },
     clusterRoles() { this.rebuild() },
     roleBindings() { this.rebuild() },
     clusterRoleBindings() { this.rebuild() },
     showSystem() { this.rebuild() },
+
+    /**
+     * Responds to external focus requests (e.g., clicking a list item in the parent).
+     * Null clears the selection; a valid ID triggers focus+select.
+     */
     focusNodeId(id) {
       if (!id) {
         this.clearSelection()
@@ -185,11 +251,12 @@ export default {
       this.focusOnNode(id)
     },
   },
+
   mounted() {
     this.initCytoscape()
     this.rebuild()
 
-    // Resize handling
+    // Keep the Cytoscape canvas sized to its container
     this.resizeObserver = new ResizeObserver(() => {
       if (this.cy) {
         this.cy.resize()
@@ -198,7 +265,9 @@ export default {
     })
     this.resizeObserver.observe(this.$refs.cyContainer)
 
-    // Theme change handling
+    // Re-apply styles when the app theme changes (dark/light mode toggle).
+    // The MutationObserver watches for changes to the `data-theme` attribute
+    // on <html>, which triggers a full stylesheet rebuild with updated CSS custom properties.
     this.themeObserver = new MutationObserver(() => {
       this.applyStyles()
     })
@@ -207,12 +276,18 @@ export default {
       attributeFilter: ['data-theme'],
     })
   },
+
   beforeUnmount() {
     if (this.cy) this.cy.destroy()
     if (this.resizeObserver) this.resizeObserver.disconnect()
     if (this.themeObserver) this.themeObserver.disconnect()
   },
+
   methods: {
+    /**
+     * Creates the Cytoscape.js instance with initial configuration and event handlers.
+     * Uses 'preset' layout initially (no positions) since rebuild() runs layout after adding elements.
+     */
     initCytoscape() {
       this.cy = cytoscape({
         container: this.$refs.cyContainer,
@@ -224,11 +299,13 @@ export default {
         wheelSensitivity: 0.3,
       })
 
+      // Select node on tap
       this.cy.on('tap', 'node', (evt) => {
         const node = evt.target
         this.selectNode(node)
       })
 
+      // Clear selection when tapping empty canvas
       this.cy.on('tap', (evt) => {
         if (evt.target === this.cy) {
           this.clearSelection()
@@ -236,10 +313,16 @@ export default {
       })
     },
 
+    /**
+     * Builds the complete Cytoscape stylesheet array.
+     * Reads current CSS custom properties for theme-aware colors (namespace fills,
+     * edge labels, canvas background for text outlines).
+     * @returns {Array<Object>} Cytoscape style definitions
+     */
     buildStylesheet() {
       const colors = this.getThemeColors()
       const styles = [
-        // Base node style
+        // Base node style -- shared defaults for all node types
         {
           selector: 'node',
           style: {
@@ -256,7 +339,8 @@ export default {
             'text-outline-width': 2,
           },
         },
-        // Compound (namespace) nodes
+        // Compound (namespace) nodes -- dashed border, semi-transparent background,
+        // label pinned to top center, extra padding for child nodes
         {
           selector: 'node[nodeType="namespace"]',
           style: {
@@ -279,9 +363,9 @@ export default {
         },
       ]
 
-      // Per-type node styles
+      // Generate per-type styles from the NODE_COLORS/NODE_SHAPES maps
       for (const [type, color] of Object.entries(NODE_COLORS)) {
-        if (type === 'namespace') continue
+        if (type === 'namespace') continue // namespace handled above as compound node
         styles.push({
           selector: `node[nodeType="${type}"]`,
           style: {
@@ -294,7 +378,7 @@ export default {
         })
       }
 
-      // Edge styles
+      // Edge styles -- green for RoleBindings, teal dashed for ClusterRoleBindings
       styles.push(
         {
           selector: 'edge',
@@ -311,10 +395,11 @@ export default {
             'text-margin-y': -8,
             'color': colors.edgeLabel,
             'text-outline-width': 2,
-            'text-outline-color': colors.canvasBg,
+            'text-outline-color': colors.canvasBg, // match canvas bg so label text is readable
             'opacity': 0.7,
           },
         },
+        // ClusterRoleBinding edges are visually distinct with dashed teal lines
         {
           selector: 'edge[edgeType="clusterrolebinding"]',
           style: {
@@ -323,7 +408,7 @@ export default {
             'target-arrow-color': '#14b8a6',
           },
         },
-        // Highlighted state
+        // Highlighted state for selected node and its direct neighbors
         {
           selector: 'node:selected, node.highlighted',
           style: {
@@ -345,6 +430,11 @@ export default {
       return styles
     },
 
+    /**
+     * Reads CSS custom properties from the document root to derive theme-aware colors.
+     * Falls back to light-mode defaults when custom properties are not set.
+     * @returns {Object} Theme color tokens for namespace, edges, and canvas
+     */
     getThemeColors() {
       const s = getComputedStyle(document.documentElement)
       const get = (prop, fallback) => s.getPropertyValue(prop).trim() || fallback
@@ -357,11 +447,20 @@ export default {
       }
     },
 
+    /**
+     * Re-applies the stylesheet to the live Cytoscape instance.
+     * Called when the theme changes to pick up new CSS custom property values.
+     */
     applyStyles() {
       if (!this.cy) return
       this.cy.style(this.buildStylesheet())
     },
 
+    /**
+     * Rebuilds the entire graph from current prop data.
+     * Clears all existing elements, re-transforms the RBAC data via buildElements(),
+     * adds the new nodes/edges, and runs the layout algorithm.
+     */
     rebuild() {
       if (!this.cy) return
 
@@ -378,13 +477,18 @@ export default {
       this.runLayout()
     },
 
+    /**
+     * Executes the current layout algorithm (dagre or cose) on all graph elements.
+     * Dagre produces a hierarchical left-to-right layout ideal for directed graphs.
+     * CoSE is a force-directed layout that works better for highly connected graphs.
+     */
     runLayout() {
       if (!this.cy || this.cy.nodes().length === 0) return
 
       const opts = this.layoutName === 'dagre'
         ? {
             name: 'dagre',
-            rankDir: 'LR',
+            rankDir: 'LR',   // Left-to-right: subjects on left, roles on right
             nodeSep: 40,
             rankSep: 80,
             edgeSep: 20,
@@ -408,15 +512,26 @@ export default {
       this.cy.layout(opts).run()
     },
 
+    /**
+     * Fits the entire graph into the viewport with 30px padding.
+     */
     fitGraph() {
       if (this.cy) this.cy.fit(undefined, 30)
     },
 
+    /**
+     * Toggles between dagre (hierarchical) and cose (force-directed) layout algorithms.
+     */
     toggleLayout() {
       this.layoutName = this.layoutName === 'dagre' ? 'cose' : 'dagre'
       this.runLayout()
     },
 
+    /**
+     * Programmatically selects a node by its ID string.
+     * Called when the parent component sets focusNodeId.
+     * @param {string} nodeId - Cytoscape node ID (e.g., "sa:default/my-sa")
+     */
     focusOnNode(nodeId) {
       if (!this.cy) return
       const node = this.cy.getElementById(nodeId)
@@ -425,19 +540,34 @@ export default {
       this.selectNode(node)
     },
 
+    /**
+     * Handles node selection: isolates the connected component, highlights direct
+     * neighbors, re-layouts the visible subgraph, and populates the detail panel.
+     *
+     * The selection flow:
+     *   1. Find the full connected component (all reachable nodes via edges)
+     *   2. Include parent namespace nodes so compound grouping is preserved
+     *   3. Hide all other elements and re-layout only the visible subgraph
+     *   4. Highlight the selected node and its direct neighbors/edges
+     *   5. Emit component node IDs so the parent list can highlight related items
+     *   6. Build detail panel data (edges for SA/Role, child counts for Namespace)
+     *
+     * @param {cytoscape.NodeSingular} node - The Cytoscape node element that was selected
+     */
     selectNode(node) {
-      // Remove previous highlights
       this.cy.elements().removeClass('highlighted dimmed')
 
       const data = node.data()
       this.selected = data
       this.$emit('node-selected', node.id())
 
-      // Traverse full connected component from the selected node
+      // Traverse the full connected component -- all nodes reachable by any path from this node.
+      // This ensures we show the complete relationship context, not just direct neighbors.
       const component = node.component()
       let visible = component
 
-      // Also include parent namespace nodes for visible nodes
+      // Compound nodes (namespaces) are not connected by edges, so they aren't part
+      // of the component. We must explicitly include them to preserve visual grouping.
       visible.nodes().forEach(n => {
         const parent = n.parent()
         if (parent && parent.length > 0) {
@@ -445,16 +575,18 @@ export default {
         }
       })
 
+      // Isolate: hide everything, then show only the connected subgraph
       this.cy.elements().hide()
       visible.show()
       node.addClass('highlighted')
-      // Highlight direct neighbors
+
+      // Highlight direct neighbors (one hop) more prominently than the rest of the component
       const connected = node.connectedEdges()
       const neighbors = connected.connectedNodes()
       neighbors.addClass('highlighted')
       connected.addClass('highlighted')
 
-      // Re-layout just the visible elements so they're compact
+      // Re-layout just the visible elements for a compact, readable subgraph
       visible.layout({
         name: 'dagre',
         rankDir: 'LR',
@@ -466,13 +598,14 @@ export default {
         padding: 40,
       }).run()
 
-      // Emit all component node IDs for list highlighting
+      // Emit related node IDs so the parent can highlight matching list items
       const relatedIds = new Set()
       component.nodes().forEach(n => relatedIds.add(n.id()))
       this.$emit('related-nodes', relatedIds)
 
-      // Build edge info
+      // Build edge metadata for the detail panel based on selected node type
       if (data.nodeType === 'serviceaccount') {
+        // For SAs, show which roles they're bound to
         this.selectedEdges = connected.map(e => ({
           id: e.id(),
           label: e.data('label'),
@@ -481,6 +614,7 @@ export default {
           sourceLabel: e.source().data('label'),
         }))
       } else if (data.nodeType === 'role' || data.nodeType === 'clusterrole') {
+        // For roles, show which SAs are bound to them
         this.selectedEdges = connected.map(e => ({
           id: e.id(),
           label: e.data('label'),
@@ -489,13 +623,14 @@ export default {
           targetLabel: e.target().data('label'),
         }))
       } else if (data.nodeType === 'namespace') {
+        // For namespaces, count children by type and show the namespace's entire subgraph
         const children = node.children()
         this.selectedChildren = {
           serviceaccounts: children.filter('[nodeType="serviceaccount"]').length,
           roles: children.filter('[nodeType="role"]').length,
         }
         this.selectedEdges = []
-        // Show namespace + children + their edges
+        // Expand visible set to include children's edges and the nodes those edges connect to
         const childEdges = children.connectedEdges()
         const edgeNeighbors = childEdges.connectedNodes()
         const nsVisible = node.union(children).union(childEdges).union(edgeNeighbors)
@@ -505,6 +640,10 @@ export default {
       }
     },
 
+    /**
+     * Clears the current selection, restores all hidden elements, removes
+     * highlights, and re-runs the layout to return to the full-graph view.
+     */
     clearSelection() {
       this.selected = null
       this.selectedEdges = []
@@ -517,9 +656,15 @@ export default {
       }
     },
 
+    /**
+     * Converts a Kubernetes RBAC rule object into a human-readable description.
+     * @param {Object} rule - Rule with {verbs, resources, apiGroups} arrays
+     * @returns {string} e.g., "Can get, list on pods (core)" or "Full access (apps)"
+     */
     describeRule(rule) {
       const verbs = (rule.verbs || []).join(', ')
       const resources = (rule.resources || []).join(', ')
+      // Map empty string API group to "core" for readability
       const groups = (rule.apiGroups || []).map(g => g === '' ? 'core' : g).join(', ')
       if (verbs === '*' && resources === '*') return `Full access (${groups})`
       const verbStr = verbs === '*' ? 'All operations' : `Can ${verbs}`

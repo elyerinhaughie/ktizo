@@ -474,6 +474,32 @@
 </template>
 
 <script>
+/**
+ * @component RbacManagement
+ * @description Main RBAC management page with a split-pane layout: a tabbed resource
+ * list on the left and an interactive Cytoscape.js graph on the right.
+ *
+ * Layout:
+ *   - Left panel (40%): Tabs for ServiceAccounts, Roles, ClusterRoles, RoleBindings,
+ *     ClusterRoleBindings with namespace filtering and system resource toggle.
+ *   - Right panel (60%): RbacGraph component showing the relationship graph.
+ *   - Clicking a list item focuses the corresponding node in the graph (and vice versa).
+ *
+ * Create User Wizard:
+ *   A multi-step modal wizard for creating a new Kubernetes ServiceAccount with role
+ *   bindings. The wizard supports three permission modes:
+ *     1. Preset -- choose from predefined permission templates
+ *     2. Existing -- bind to an already-existing Role or ClusterRole
+ *     3. Custom -- manually define rules (API groups, resources, verbs)
+ *
+ *   Wizard steps vary by mode:
+ *     - Preset/Existing: Step 1 (Identity) -> Step 2 (Permissions) -> Step 3 (Review)
+ *     - Custom: Step 1 (Identity) -> Step 2 (Permissions) -> Step 3 (Custom Rules) -> Step 4 (Review)
+ *
+ * Real-time updates:
+ *   Subscribes to WebSocket events of type 'rbac_updated' to auto-refresh data
+ *   when RBAC resources change externally.
+ */
 import apiService from '../services/api'
 import websocketService from '../services/websocket'
 import { useToast } from 'vue-toastification'
@@ -482,38 +508,72 @@ import RbacGraph from './RbacGraph.vue'
 export default {
   name: 'RbacManagement',
   components: { RbacGraph },
+
   data() {
     return {
+      /** @type {boolean} True while RBAC data is being fetched from the API */
       loading: true,
+      /** @type {string} Currently active tab key (e.g., 'serviceaccounts', 'roles') */
       activeTab: 'serviceaccounts',
+      /** @type {string} Namespace filter; empty string means "All Namespaces" */
       selectedNamespace: '',
+      /** @type {boolean} Whether to include system/built-in K8s resources */
       showSystem: false,
+      /** @type {Array<string>} Available namespaces in the cluster */
       namespaces: [],
+
+      // --- RBAC resource lists (filtered by namespace + showSystem) ---
+      /** @type {Array<Object>} */
       serviceAccounts: [],
+      /** @type {Array<Object>} */
       roles: [],
+      /** @type {Array<Object>} */
       clusterRoles: [],
+      /** @type {Array<Object>} */
       roleBindings: [],
+      /** @type {Array<Object>} */
       clusterRoleBindings: [],
+
+      /** @type {Set<string>} Tracks which Role cards have their rules expanded */
       expandedRoles: new Set(),
+      /** @type {Set<string>} Tracks which ClusterRole cards have their rules expanded */
       expandedClusterRoles: new Set(),
+      /** @type {Array<Object>} Permission preset templates loaded from the API */
       presets: [],
+      /** @type {Array<Object>} All non-system Roles (for the wizard's "existing role" picker) */
       allRoles: [],
+      /** @type {Array<Object>} All non-system ClusterRoles (for the wizard's "existing role" picker) */
       allClusterRoles: [],
 
-      // Wizard state
+      // --- Wizard state ---
+      /** @type {boolean} Whether the wizard modal is open */
       wizardOpen: false,
+      /** @type {number} Current wizard step (1-indexed) */
       wizardStep: 1,
+      /** @type {boolean} True while the wizard's create request is in flight */
       wizardSubmitting: false,
+      /** @type {string} Validation error message for the wizard name field */
       wizardNameError: '',
+      /** @type {Object} Wizard form data (name, namespace, scope, permMode, etc.) */
       wizard: this.freshWizard(),
 
+      // --- Graph <-> List synchronization ---
+      /** @type {string|null} Node ID currently focused in both list and graph */
       focusedNodeId: null,
+      /** @type {Set<string>} Node IDs in the focused node's connected component (for list highlighting) */
       relatedNodeIds: new Set(),
+      /** @type {Array<string>} Kubernetes RBAC verbs available for custom rule building */
       availableVerbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete', '*'],
+      /** @type {Function|null} Unsubscribe function for the WebSocket event listener */
       unsubscribeWs: null,
     }
   },
+
   computed: {
+    /**
+     * Tab definitions for the resource list panel.
+     * @returns {Array<{key: string, label: string}>}
+     */
     tabs() {
       return [
         { key: 'serviceaccounts', label: 'Users' },
@@ -523,12 +583,29 @@ export default {
         { key: 'clusterrolebindings', label: 'ClusterBindings' },
       ]
     },
+
+    /**
+     * Human-readable label for the currently active tab.
+     * @returns {string}
+     */
     activeTabLabel() {
       return this.tabs.find(t => t.key === this.activeTab)?.label || ''
     },
+
+    /**
+     * Whether the active tab's resources are namespace-scoped (and thus should
+     * show the namespace filter dropdown). ClusterRoles and ClusterRoleBindings
+     * are cluster-scoped and don't need namespace filtering.
+     * @returns {boolean}
+     */
     tabNeedsNamespace() {
       return ['serviceaccounts', 'roles', 'rolebindings'].includes(this.activeTab)
     },
+
+    /**
+     * Badge counts displayed next to each tab label.
+     * @returns {Object<string, number>}
+     */
     tabCounts() {
       return {
         serviceaccounts: this.serviceAccounts.length,
@@ -538,6 +615,11 @@ export default {
         clusterrolebindings: this.clusterRoleBindings.length,
       }
     },
+
+    /**
+     * The resource list for the currently active tab.
+     * @returns {Array<Object>}
+     */
     currentItems() {
       const map = {
         serviceaccounts: this.serviceAccounts,
@@ -548,9 +630,24 @@ export default {
       }
       return map[this.activeTab] || []
     },
+
+    /**
+     * Total number of wizard steps. Custom permission mode adds an extra
+     * step for defining rules (4 steps total vs 3 for preset/existing).
+     * @returns {number}
+     */
     wizardStepCount() {
       return this.wizard.permMode === 'custom' ? 4 : 3
     },
+
+    /**
+     * Validates whether the user can proceed to the next wizard step.
+     * Each step has its own validation logic:
+     *   - Step 1: name and namespace must be filled, no validation errors
+     *   - Step 2: depends on permMode (preset needs selection, existing needs role, custom always ok)
+     *   - Step 3 (custom only): at least one rule with resources and verbs
+     * @returns {boolean}
+     */
     canAdvanceWizard() {
       if (this.wizardStep === 1) {
         return this.wizard.name && this.wizard.namespace && !this.wizardNameError
@@ -566,9 +663,20 @@ export default {
       }
       return true
     },
+
+    /**
+     * The currently selected preset object (for the review step).
+     * @returns {Object|undefined}
+     */
     selectedPreset() {
       return this.presets.find(p => p.id === this.wizard.presetId)
     },
+
+    /**
+     * Human-readable rule descriptions for the wizard review step.
+     * Builds from either the selected preset's rules or custom-defined rules.
+     * @returns {Array<string>}
+     */
     reviewRules() {
       let rules = []
       if (this.wizard.permMode === 'preset' && this.selectedPreset) {
@@ -583,26 +691,38 @@ export default {
       return rules.map(r => this.describeRule(r))
     },
   },
+
   watch: {
+    /** Reload data when the active tab changes to ensure fresh counts */
     activeTab() {
       this.loadAllRbacData()
     },
   },
+
   async mounted() {
     this.toast = useToast()
     await this.loadNamespaces()
     await this.loadAllRbacData()
     this.loadPresets()
+
+    // Subscribe to real-time RBAC change events via WebSocket
     this.unsubscribeWs = websocketService.subscribe((event) => {
       if (event.type === 'rbac_updated') {
         this.loadAllRbacData()
       }
     })
   },
+
   beforeUnmount() {
     if (this.unsubscribeWs) this.unsubscribeWs()
   },
+
   methods: {
+    /**
+     * Returns a fresh wizard form data object with default values.
+     * Called when opening the wizard to reset all fields.
+     * @returns {Object} Default wizard state
+     */
     freshWizard() {
       return {
         name: '',
@@ -614,6 +734,11 @@ export default {
         customRules: [{ apiGroups: '', resources: '', verbs: [] }],
       }
     },
+
+    /**
+     * Fetches the list of available namespaces from the cluster.
+     * @async
+     */
     async loadNamespaces() {
       try {
         this.namespaces = await apiService.rbacNamespaces()
@@ -621,6 +746,12 @@ export default {
         this.namespaces = []
       }
     },
+
+    /**
+     * Fetches permission preset templates from the API.
+     * Presets are predefined role configurations (e.g., "read-only", "admin").
+     * @async
+     */
     async loadPresets() {
       try {
         this.presets = await apiService.rbacPresets()
@@ -628,14 +759,28 @@ export default {
         this.presets = []
       }
     },
+
+    /**
+     * Triggered when namespace or showSystem filters change.
+     * Reloads all RBAC data with updated filter parameters.
+     */
     onFilterChange() {
       this.loadAllRbacData()
     },
+
+    /**
+     * Fetches all five RBAC resource types in parallel.
+     * Namespace-scoped resources (SAs, Roles, RoleBindings) are filtered by
+     * selectedNamespace. Cluster-scoped resources only filter by showSystem.
+     * Results are stored in component data and fed to both the list and graph.
+     * @async
+     */
     async loadAllRbacData() {
       this.loading = true
       try {
         const params = { include_system: this.showSystem }
         if (this.selectedNamespace) params.namespace = this.selectedNamespace
+        // Cluster-scoped resources don't accept a namespace filter
         const clusterParams = { include_system: this.showSystem }
         const [sa, roles, cr, rb, crb] = await Promise.all([
           apiService.rbacServiceAccounts(params),
@@ -655,6 +800,12 @@ export default {
         this.loading = false
       }
     },
+
+    /**
+     * Loads non-system Roles and ClusterRoles for the wizard's "existing role" picker.
+     * Excludes system resources since users typically bind to their own roles.
+     * @async
+     */
     async loadWizardRoles() {
       try {
         const [roles, clusterRoles] = await Promise.all([
@@ -668,6 +819,12 @@ export default {
         this.allClusterRoles = []
       }
     },
+
+    /**
+     * Toggles the rule detail expansion for a namespace-scoped Role card.
+     * Reassigns the Set to trigger Vue reactivity.
+     * @param {Object} role - The Role object with {namespace, name}
+     */
     toggleRoleDetail(role) {
       const key = `${role.namespace}/${role.name}`
       if (this.expandedRoles.has(key)) {
@@ -675,8 +832,14 @@ export default {
       } else {
         this.expandedRoles.add(key)
       }
+      // Vue 3 doesn't deeply track Set mutations; reassign to trigger reactivity
       this.expandedRoles = new Set(this.expandedRoles)
     },
+
+    /**
+     * Toggles the rule detail expansion for a ClusterRole card.
+     * @param {Object} cr - The ClusterRole object with {name}
+     */
     toggleClusterRoleDetail(cr) {
       if (this.expandedClusterRoles.has(cr.name)) {
         this.expandedClusterRoles.delete(cr.name)
@@ -685,6 +848,12 @@ export default {
       }
       this.expandedClusterRoles = new Set(this.expandedClusterRoles)
     },
+
+    /**
+     * Converts a Kubernetes RBAC rule into a human-readable sentence.
+     * @param {Object} rule - Rule with {verbs, resources, apiGroups} arrays
+     * @returns {string} e.g., "Can get, list on pods (core)"
+     */
     describeRule(rule) {
       const verbs = (rule.verbs || []).join(', ')
       const resources = (rule.resources || []).join(', ')
@@ -694,15 +863,36 @@ export default {
       const verbStr = verbs === '*' ? 'All operations' : `Can ${verbs}`
       return `${verbStr} on ${resources} (${groups})`
     },
+
+    /**
+     * Describes a custom rule from the wizard form (where apiGroups/resources are
+     * comma-separated strings rather than arrays).
+     * @param {Object} rule - Wizard rule with string apiGroups/resources and array verbs
+     * @returns {string} Human-readable rule preview
+     */
     describeCustomRule(rule) {
       const verbs = rule.verbs.join(', ') || 'no verbs'
       const resources = rule.resources || 'no resources'
       const groups = rule.apiGroups || 'core'
       return `${verbs} on ${resources} (${groups})`
     },
+
+    /**
+     * Parses a comma-separated string into a trimmed, non-empty array.
+     * Used to convert wizard form inputs (e.g., "pods, deployments") into arrays.
+     * @param {string} str - Comma-separated input
+     * @returns {Array<string>}
+     */
     parseCSV(str) {
       return (str || '').split(',').map(s => s.trim()).filter(Boolean)
     },
+
+    /**
+     * Formats a timestamp into a relative date string (e.g., "today", "3d ago").
+     * Falls back to locale date string for dates older than 30 days.
+     * @param {string} ts - ISO 8601 timestamp
+     * @returns {string}
+     */
     formatDate(ts) {
       if (!ts) return ''
       const d = new Date(ts)
@@ -714,6 +904,12 @@ export default {
       if (diffDays < 30) return `${diffDays}d ago`
       return d.toLocaleDateString()
     },
+
+    /**
+     * Validates the wizard name field against Kubernetes naming rules:
+     * lowercase alphanumeric with optional hyphens, max 63 chars,
+     * cannot start or end with a hyphen.
+     */
     validateName() {
       const name = this.wizard.name
       if (!name) {
@@ -728,6 +924,11 @@ export default {
         this.wizardNameError = ''
       }
     },
+
+    /**
+     * Opens the "Create User" wizard modal, resetting all form state
+     * and preloading available roles for the "existing role" picker.
+     */
     openWizard() {
       this.wizard = this.freshWizard()
       this.wizardStep = 1
@@ -736,15 +937,27 @@ export default {
       this.wizardOpen = true
       this.loadWizardRoles()
     },
+
+    /**
+     * Advances the wizard to the next step.
+     * For non-custom modes, skips the custom rules step (step 3) and
+     * jumps directly from step 2 to the review step.
+     */
     wizardNext() {
       if (!this.canAdvanceWizard) return
-      // Skip custom rules step if not in custom mode
       if (this.wizardStep === 2 && this.wizard.permMode !== 'custom') {
+        // Skip the custom rules step -- jump straight to review
         this.wizardStep = this.wizardStepCount
       } else {
         this.wizardStep++
       }
     },
+
+    /**
+     * Navigates the wizard back one step.
+     * Mirrors the skip logic in wizardNext: from review, go back to step 2
+     * if not in custom mode (since step 3 was skipped).
+     */
     wizardBack() {
       if (this.wizardStep === this.wizardStepCount && this.wizard.permMode !== 'custom') {
         this.wizardStep = 2
@@ -752,9 +965,22 @@ export default {
         this.wizardStep--
       }
     },
+
+    /**
+     * Appends an empty rule entry to the wizard's custom rules list.
+     */
     addCustomRule() {
       this.wizard.customRules.push({ apiGroups: '', resources: '', verbs: [] })
     },
+
+    /**
+     * Submits the wizard form to create the ServiceAccount, Role (if needed),
+     * and RoleBinding/ClusterRoleBinding via the backend's wizard endpoint.
+     *
+     * On success: closes the wizard, switches to the ServiceAccounts tab
+     * filtered to the new SA's namespace, and reloads all data.
+     * @async
+     */
     async submitWizard() {
       this.wizardSubmitting = true
       try {
@@ -764,11 +990,13 @@ export default {
           scope: this.wizard.scope,
         }
 
+        // Attach permission-mode-specific fields
         if (this.wizard.permMode === 'preset') {
           params.preset_id = this.wizard.presetId
         } else if (this.wizard.permMode === 'existing') {
           params.existing_role = this.wizard.existingRole
         } else {
+          // Convert comma-separated form strings to arrays for the API
           params.custom_rules = this.wizard.customRules.map(r => ({
             apiGroups: this.parseCSV(r.apiGroups),
             resources: this.parseCSV(r.resources),
@@ -779,6 +1007,7 @@ export default {
         await apiService.rbacWizardCreate(params)
         this.toast.success(`User "${this.wizard.name}" created successfully`)
         this.wizardOpen = false
+        // Navigate to the new SA's context
         this.activeTab = 'serviceaccounts'
         this.selectedNamespace = this.wizard.namespace
         await this.loadAllRbacData()
@@ -788,22 +1017,54 @@ export default {
         this.wizardSubmitting = false
       }
     },
+
+    /**
+     * Toggles focus on a graph node when a list item is clicked.
+     * Clicking the same item again deselects it.
+     * @param {string} nodeId - Cytoscape node ID to focus
+     */
     focusNode(nodeId) {
       this.focusedNodeId = this.focusedNodeId === nodeId ? null : nodeId
     },
+
+    /**
+     * Focuses the role referenced by a binding when a RoleBinding/ClusterRoleBinding
+     * list item is clicked. Bindings don't have their own graph nodes, so we
+     * focus the target role instead.
+     * @param {Object} binding - RoleBinding or ClusterRoleBinding with role_ref
+     */
     focusBindingNodes(binding) {
-      // For bindings, focus the role they reference
       const roleId = binding.role_ref.kind === 'ClusterRole'
         ? `clusterrole:${binding.role_ref.name}`
         : `role:${binding.namespace}/${binding.role_ref.name}`
       this.focusNode(roleId)
     },
+
+    /**
+     * Callback from the RbacGraph 'node-selected' event.
+     * Syncs the graph's selection state back to the list.
+     * @param {string|null} nodeId - Selected node ID, or null on deselect
+     */
     onGraphNodeSelected(nodeId) {
       this.focusedNodeId = nodeId
     },
+
+    /**
+     * Callback from the RbacGraph 'related-nodes' event.
+     * Updates the set of related node IDs for list item highlighting.
+     * @param {Set<string>} ids - Node IDs in the selected node's connected component
+     */
     onRelatedNodes(ids) {
       this.relatedNodeIds = ids
     },
+
+    /**
+     * Prompts the user with a confirmation dialog, then deletes the specified
+     * RBAC resource via the appropriate API endpoint.
+     * @param {string} kind - Resource kind: 'serviceaccount', 'role', 'clusterrole', 'rolebinding', 'clusterrolebinding'
+     * @param {Object} item - The resource object with {name, namespace?}
+     * @async
+     */
     async confirmDelete(kind, item) {
       const name = item.name
       const ns = item.namespace

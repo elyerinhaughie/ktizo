@@ -159,6 +159,15 @@
                   <li><a href="#storage-rook-ceph" @click.prevent="scrollTo('storage-rook-ceph')" class="text-gray-400 no-underline text-[0.8rem] block py-0.5 transition-colors duration-200 hover:text-[#42b983]">Rook/Ceph Integration</a></li>
                 </ul>
               </li>
+              <li class="mb-1.5">
+                <a href="#rbac-config" @click.prevent="scrollTo('rbac-config')" class="text-gray-600 no-underline text-[0.9rem] block py-1 px-2 rounded transition-all duration-200 hover:bg-gray-100 hover:text-sidebar-dark hover:pl-3">RBAC Management</a>
+                <ul class="list-none p-0 m-0 ml-3 mt-1 border-l border-gray-200 pl-2">
+                  <li><a href="#rbac-overview" @click.prevent="scrollTo('rbac-overview')" class="text-gray-400 no-underline text-[0.8rem] block py-0.5 transition-colors duration-200 hover:text-[#42b983]">Overview</a></li>
+                  <li><a href="#rbac-resources" @click.prevent="scrollTo('rbac-resources')" class="text-gray-400 no-underline text-[0.8rem] block py-0.5 transition-colors duration-200 hover:text-[#42b983]">Resource Types</a></li>
+                  <li><a href="#rbac-wizard" @click.prevent="scrollTo('rbac-wizard')" class="text-gray-400 no-underline text-[0.8rem] block py-0.5 transition-colors duration-200 hover:text-[#42b983]">Create User Wizard</a></li>
+                  <li><a href="#rbac-graph" @click.prevent="scrollTo('rbac-graph')" class="text-gray-400 no-underline text-[0.8rem] block py-0.5 transition-colors duration-200 hover:text-[#42b983]">Relationship Graph</a></li>
+                </ul>
+              </li>
             </ul>
           </div>
 
@@ -923,6 +932,85 @@ talos.config=http://SERVER_IP:8000/api/v1/talos/configs/MAC.yaml  # "Fetch my co
           </p>
           <p class="text-gray-600 leading-[1.8] mb-4">
             For example, on a 1TB disk with EPHEMERAL limited to 100GB, approximately 900GB remains unpartitioned. Rook/Ceph can automatically discover and claim this space. This is the primary reason to limit the EPHEMERAL partition size in Ktizo.
+          </p>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- RBAC MANAGEMENT SECTION -->
+        <!-- ============================================================ -->
+
+        <section id="rbac-config" class="mb-12 scroll-mt-8">
+          <h2 class="text-2xl font-bold text-sidebar-dark pb-3 mb-6 border-b-2 border-primary">RBAC Management</h2>
+
+          <h3 id="rbac-overview" class="text-sidebar-dark text-xl mt-6 mb-3 scroll-mt-24">Overview</h3>
+          <p class="text-gray-600 leading-[1.8] mb-4">
+            RBAC (Role-Based Access Control) is how Kubernetes decides <em>who</em> can do <em>what</em> inside your cluster. Think of it like a building's key card system: each person (ServiceAccount) gets a key card, and each key card is programmed with a set of doors it can open (permissions). RBAC ties these together using three concepts: <strong class="text-sidebar-dark">identities</strong>, <strong class="text-sidebar-dark">roles</strong>, and <strong class="text-sidebar-dark">bindings</strong>.
+          </p>
+          <p class="text-gray-600 leading-[1.8] mb-4">
+            Ktizo provides a visual interface for managing RBAC resources. The page is split into two panels: a <strong class="text-sidebar-dark">list view</strong> on the left showing all RBAC resources organized by type, and a <strong class="text-sidebar-dark">relationship graph</strong> on the right showing how they connect to each other. Clicking an item in either panel highlights all related resources in both views.
+          </p>
+
+          <h3 id="rbac-resources" class="text-sidebar-dark text-xl mt-6 mb-3 scroll-mt-24">Resource Types</h3>
+          <p class="text-gray-600 leading-[1.8] mb-4">
+            Kubernetes RBAC is built from five resource types, each with a specific purpose:
+          </p>
+          <ul class="text-gray-600 leading-[1.8] my-4 ml-6">
+            <li class="mb-4"><strong class="text-sidebar-dark">ServiceAccount:</strong> An identity within the cluster. Every application or automation that needs to interact with Kubernetes does so through a ServiceAccount. Think of it as a user account, but for software rather than people. Each ServiceAccount lives in a specific namespace.</li>
+            <li class="mb-4"><strong class="text-sidebar-dark">Role:</strong> A list of permissions scoped to a single namespace. For example, a Role might say "you can read and list Pods in the <em>production</em> namespace." It cannot grant access outside its namespace.</li>
+            <li class="mb-4"><strong class="text-sidebar-dark">ClusterRole:</strong> Like a Role, but applies across the entire cluster. A ClusterRole can grant access to resources in any namespace, or to cluster-wide resources like Nodes that don't belong to any namespace.</li>
+            <li class="mb-4"><strong class="text-sidebar-dark">RoleBinding:</strong> The link between a ServiceAccount and a Role (or ClusterRole) within a specific namespace. Without a binding, having a ServiceAccount and a Role does nothing &mdash; the binding is what actually grants the permissions. A RoleBinding can reference a ClusterRole, but the resulting access is still limited to the binding's namespace.</li>
+            <li class="mb-4"><strong class="text-sidebar-dark">ClusterRoleBinding:</strong> Like a RoleBinding, but grants cluster-wide access. When a ClusterRoleBinding links a ServiceAccount to a ClusterRole, that account gets the specified permissions across <em>every</em> namespace.</li>
+          </ul>
+          <p class="text-gray-600 leading-[1.8] mb-4">
+            The relationship chain always follows the same pattern: <strong class="text-sidebar-dark">ServiceAccount</strong> &rarr; <strong class="text-sidebar-dark">Binding</strong> &rarr; <strong class="text-sidebar-dark">Role/ClusterRole</strong> &rarr; <strong class="text-sidebar-dark">Rules</strong>. Each rule specifies which API groups, resources, and verbs (actions like get, list, create, delete) are allowed.
+          </p>
+
+          <h3 id="rbac-wizard" class="text-sidebar-dark text-xl mt-6 mb-3 scroll-mt-24">Create User Wizard</h3>
+          <p class="text-gray-600 leading-[1.8] mb-4">
+            The "Create User" wizard walks you through setting up a complete RBAC identity in four steps:
+          </p>
+          <ol class="text-gray-600 leading-[1.8] my-4 ml-6">
+            <li class="mb-3"><strong class="text-sidebar-dark">Identity:</strong> Choose a name and namespace for the new ServiceAccount. Names must be lowercase alphanumeric with optional hyphens (Kubernetes naming rules).</li>
+            <li class="mb-3"><strong class="text-sidebar-dark">Permissions:</strong> Choose how to assign permissions:
+              <ul class="list-disc ml-6 mt-2">
+                <li class="mb-1"><em>Preset role</em> &mdash; pick from common patterns like "read-only viewer" or "full admin"</li>
+                <li class="mb-1"><em>Existing role</em> &mdash; bind to a Role or ClusterRole already in the cluster</li>
+                <li class="mb-1"><em>Custom</em> &mdash; define rules manually by specifying API groups, resources, and verbs</li>
+              </ul>
+            </li>
+            <li class="mb-3"><strong class="text-sidebar-dark">Custom Rules</strong> (if custom mode): Add one or more rules specifying exactly what the user can do. Each rule targets specific API groups and resources with selected verbs.</li>
+            <li class="mb-3"><strong class="text-sidebar-dark">Review:</strong> See a summary of everything that will be created &mdash; the ServiceAccount, the Role (if new), and the Binding &mdash; before confirming.</li>
+          </ol>
+          <p class="text-gray-600 leading-[1.8] mb-4">
+            The wizard creates all three resources (ServiceAccount, Role, and Binding) in a single operation. If you chose a preset or custom permissions, a new Role is created with the name <code class="bg-gray-100 px-1.5 py-0.5 rounded text-sm">&lt;name&gt;-role</code> and the binding is named <code class="bg-gray-100 px-1.5 py-0.5 rounded text-sm">&lt;name&gt;-binding</code>.
+          </p>
+
+          <h3 id="rbac-graph" class="text-sidebar-dark text-xl mt-6 mb-3 scroll-mt-24">Relationship Graph</h3>
+          <p class="text-gray-600 leading-[1.8] mb-4">
+            The right panel displays an interactive graph showing the relationships between RBAC resources. Each node type has a distinct color and shape:
+          </p>
+          <ul class="text-gray-600 leading-[1.8] my-4 ml-6">
+            <li class="mb-2"><strong class="text-sidebar-dark" style="color: #3b82f6;">ServiceAccounts</strong> &mdash; Blue rounded rectangles</li>
+            <li class="mb-2"><strong class="text-sidebar-dark" style="color: #8b5cf6;">Roles</strong> &mdash; Purple rectangles</li>
+            <li class="mb-2"><strong class="text-sidebar-dark" style="color: #f59e0b;">ClusterRoles</strong> &mdash; Amber diamonds</li>
+            <li class="mb-2"><strong class="text-sidebar-dark">Namespaces</strong> &mdash; Gray containers that group namespace-scoped resources</li>
+          </ul>
+          <p class="text-gray-600 leading-[1.8] mb-4">
+            Edges (lines) represent bindings. Solid green lines are RoleBindings; dashed teal lines are ClusterRoleBindings. The direction is always from ServiceAccount to Role, with the binding name shown as the edge label.
+          </p>
+          <p class="text-gray-600 leading-[1.8] mb-4">
+            <strong class="text-sidebar-dark">Drill-down filtering:</strong> Clicking any node (or list item) hides all unrelated resources and re-layouts the visible elements compactly. This is especially useful in large clusters where the full graph would be too dense to read. The entire connected component is shown &mdash; not just immediate neighbors, but everything reachable through any chain of bindings. Click the background to restore the full view.
+          </p>
+          <p class="text-gray-600 leading-[1.8] mb-4">
+            <strong class="text-sidebar-dark">Detail panel:</strong> Clicking a node opens a detail panel showing:
+          </p>
+          <ul class="text-gray-600 leading-[1.8] my-4 ml-6">
+            <li class="mb-2">For ServiceAccounts: which roles it's bound to and through which bindings</li>
+            <li class="mb-2">For Roles/ClusterRoles: the permission rules in plain English and which ServiceAccounts are bound to it</li>
+            <li class="mb-2">For Namespaces: a count of ServiceAccounts and Roles inside</li>
+          </ul>
+          <p class="text-gray-600 leading-[1.8] mb-4">
+            The toolbar provides controls for fitting the graph to the viewport and toggling between hierarchical (dagre) and force-directed (cose) layouts. System resources (those managed by Kubernetes itself) are hidden by default but can be shown with the "Show system resources" toggle.
           </p>
         </section>
 
