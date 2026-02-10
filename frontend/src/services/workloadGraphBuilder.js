@@ -79,7 +79,7 @@ export function buildWorkloadElements(data) {
   replicasets.forEach(rs => { uidToKind.set(rs.uid, 'ReplicaSet') })
 
   // --- Pass 1: Namespace compound nodes ---
-  const allNamespaces = new Set(namespaces)
+  const allNamespaces = new Set()
   ;[deployments, statefulsets, daemonsets, replicasets, pods, services, ingresses, configmaps, secrets, pvcs]
     .forEach(list => list.forEach(r => { if (r.namespace) allNamespaces.add(r.namespace) }))
 
@@ -173,7 +173,7 @@ export function buildWorkloadElements(data) {
     const id = `svc:${s.namespace}/${s.name}`
     uidToNodeId.set(s.uid, id)
     addNode(id, {
-      label: `${s.name}\n(service) ${s.cluster_ip || ''}${s.external_ips?.length ? '\n' + s.external_ips.join(', ') : ''}`, nodeType: 'service', namespace: s.namespace,
+      label: `${s.name}\n(service)${s.cluster_ip ? '\nInternal: ' + s.cluster_ip : ''}${s.external_ips?.length ? '\nExternal: ' + s.external_ips.join(', ') : ''}`, nodeType: 'service', namespace: s.namespace,
       parent: `ns:${s.namespace}`,
       serviceType: s.type, ports: s.ports,
       raw: s,

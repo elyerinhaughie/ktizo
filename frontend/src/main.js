@@ -15,7 +15,8 @@ import {
   faChevronDown, faChevronRight, faSliders, faPowerOff, faBolt, faMicrochip,
   faCubes, faLock, faCodeBranch, faCube, faArrowsRotate, faClock, faDatabase,
   faWrench, faStethoscope, faRotate, faFileLines, faArrowUpRightFromSquare,
-  faPlay, faLayerGroup, faShieldHalved, faUserShield, faDiagramProject
+  faPlay, faLayerGroup, faShieldHalved, faUserShield, faDiagramProject,
+  faExpand, faCompress
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -27,7 +28,8 @@ library.add(
   faChevronDown, faChevronRight, faSliders, faPowerOff, faBolt, faMicrochip,
   faCubes, faLock, faCodeBranch, faCube, faArrowsRotate, faClock, faDatabase,
   faWrench, faStethoscope, faRotate, faFileLines, faArrowUpRightFromSquare,
-  faPlay, faLayerGroup, faShieldHalved, faUserShield, faDiagramProject
+  faPlay, faLayerGroup, faShieldHalved, faUserShield, faDiagramProject,
+  faExpand, faCompress
 )
 
 import themeService from './services/theme'

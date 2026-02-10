@@ -1,7 +1,7 @@
 <template>
-  <div>
+  <div :class="fullscreen ? 'fixed inset-0 z-[9998] bg-[var(--th-bg-page,#f3f4f6)]' : ''">
     <!-- Header -->
-    <div class="flex items-center justify-between mb-8 sticky top-0 z-10 bg-[var(--th-bg-page,#f3f4f6)] -mx-8 px-8 py-4">
+    <div v-if="!fullscreen" class="flex items-center justify-between mb-8 sticky top-0 z-10 bg-[var(--th-bg-page,#f3f4f6)] -mx-8 px-8 py-4">
       <div>
         <h2 class="text-2xl font-bold text-gray-900 m-0" style="color: var(--th-text-heading, #111827);">Workload Graph</h2>
         <p class="text-gray-500 mt-1 mb-0" style="color: var(--th-text-muted, #6b7280);">Visualize Kubernetes workload relationships and drill into resource stacks</p>
@@ -13,12 +13,12 @@
     </div>
 
     <!-- Namespace selector + controls -->
-    <div class="flex items-center gap-4 mb-6">
+    <div class="flex items-center gap-4" :class="fullscreen ? 'px-4 py-3' : 'mb-6'">
       <div class="flex items-center gap-2">
         <label class="font-medium text-gray-700 whitespace-nowrap text-sm" style="color: var(--th-text, #374151);">Namespace:</label>
         <select v-model="selectedNamespace" class="p-2 border border-gray-300 rounded text-sm"
           style="background-color: var(--th-bg-card, #fff); border-color: var(--th-border, #d1d5db); color: var(--th-text, #374151);">
-          <option value="">All Namespaces</option>
+          <option value="" disabled>Select a namespace...</option>
           <option v-for="ns in namespaces" :key="ns" :value="ns">{{ ns }}</option>
         </select>
       </div>
@@ -27,11 +27,21 @@
           <input type="checkbox" v-model="showSystem" class="cursor-pointer" />
           Show system resources
         </label>
+        <button v-if="fullscreen" @click="loadWorkloadData" :disabled="loading"
+          class="bg-blue-600 text-white py-1.5 px-3 rounded border-none cursor-pointer text-sm font-medium transition-colors hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-50 ml-2">
+          <font-awesome-icon :icon="['fas', 'arrows-rotate']" :class="{ 'animate-spin': loading }" /> Refresh
+        </button>
+        <button @click="toggleFullscreen"
+          class="w-8 h-8 flex items-center justify-center rounded border cursor-pointer text-sm transition-colors ml-2"
+          style="background-color: var(--th-bg-card, #fff); border-color: var(--th-border, #e5e7eb); color: var(--th-text-secondary, #6b7280);"
+          :title="fullscreen ? 'Exit fullscreen' : 'Fullscreen'">
+          <font-awesome-icon :icon="['fas', fullscreen ? 'compress' : 'expand']" />
+        </button>
       </div>
     </div>
 
     <!-- Side-by-side layout: list left, graph right -->
-    <div class="flex gap-6 items-start">
+    <div v-if="!fullscreen" class="flex gap-6 items-start">
 
       <!-- Left: List content -->
       <div class="w-2/5 min-w-0 rounded-lg shadow-sm p-5 overflow-y-auto"
@@ -96,10 +106,23 @@
           ref="graph"
           :workload-data="workloadData"
           :focus-node-id="focusedNodeId"
+          :fullscreen="false"
           @node-selected="onGraphNodeSelected"
           @related-nodes="onRelatedNodes"
         />
       </div>
+    </div>
+
+    <!-- Fullscreen graph -->
+    <div v-if="fullscreen" class="flex-1" style="height: calc(100vh - 52px);">
+      <WorkloadGraph
+        ref="graph"
+        :workload-data="workloadData"
+        :focus-node-id="focusedNodeId"
+        :fullscreen="true"
+        @node-selected="onGraphNodeSelected"
+        @related-nodes="onRelatedNodes"
+      />
     </div>
   </div>
 </template>
@@ -134,6 +157,7 @@ export default {
       workloadData: {},
       focusedNodeId: null,
       relatedNodeIds: new Set(),
+      fullscreen: false,
     }
   },
 
@@ -255,29 +279,36 @@ export default {
   },
 
   watch: {
-    selectedNamespace() { this.loadWorkloadData() },
-    showSystem() { this.loadWorkloadData() },
+    selectedNamespace() { if (this.selectedNamespace) this.loadWorkloadData() },
+    showSystem() { this.fetchNamespaces(); if (this.selectedNamespace) this.loadWorkloadData() },
   },
 
   mounted() {
-    this.loadWorkloadData()
+    this.fetchNamespaces()
   },
 
   methods: {
-    async loadWorkloadData() {
-      this.loading = true
+    async fetchNamespaces() {
       try {
-        const params = { include_system: this.showSystem }
-        if (this.selectedNamespace) params.namespace = this.selectedNamespace
-        this.workloadData = await apiService.workloadsList(params)
-        // Populate namespace dropdown (filter system ns unless showing them)
-        const allNs = this.workloadData.namespaces || []
+        const data = await apiService.workloadsList({ include_system: this.showSystem })
+        const allNs = data.namespaces || []
         if (this.showSystem) {
           this.namespaces = allNs
         } else {
           const systemNs = new Set(['kube-system', 'kube-public', 'kube-node-lease'])
           this.namespaces = allNs.filter(ns => !systemNs.has(ns))
         }
+      } catch (error) {
+        console.error('Failed to fetch namespaces:', error)
+      }
+    },
+
+    async loadWorkloadData() {
+      if (!this.selectedNamespace) return
+      this.loading = true
+      try {
+        const params = { include_system: this.showSystem, namespace: this.selectedNamespace }
+        this.workloadData = await apiService.workloadsList(params)
       } catch (error) {
         console.error('Failed to load workload data:', error)
       } finally {
@@ -295,6 +326,16 @@ export default {
 
     onRelatedNodes(ids) {
       this.relatedNodeIds = ids
+    },
+
+    toggleFullscreen() {
+      this.fullscreen = !this.fullscreen
+      this.$nextTick(() => {
+        if (this.$refs.graph && this.$refs.graph.cy) {
+          this.$refs.graph.cy.resize()
+          this.$refs.graph.fitGraph()
+        }
+      })
     },
   },
 }

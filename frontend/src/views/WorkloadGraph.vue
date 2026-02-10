@@ -1,5 +1,5 @@
 <template>
-  <div class="relative" ref="wrapper">
+  <div class="relative h-full" ref="wrapper">
     <!-- Toolbar -->
     <div class="absolute top-3 right-3 z-10 flex gap-1.5">
       <button @click="fitGraph" title="Fit to view"
@@ -35,15 +35,15 @@
       <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full inline-block" style="background:#1e40af"></span> Internet</div>
       <hr class="border-gray-200 my-1" style="border-color: var(--th-border-light, #f3f4f6);">
       <div class="flex items-center gap-2"><span class="w-4 border-t-2 border-gray-500 inline-block"></span> owns</div>
-      <div class="flex items-center gap-2"><span class="w-4 border-t-2 inline-block" style="border-color:#22c55e"></span> selects</div>
-      <div class="flex items-center gap-2"><span class="w-4 border-t-2 inline-block" style="border-color:#f97316"></span> routes</div>
-      <div class="flex items-center gap-2"><span class="w-4 border-t-2 inline-block" style="border-color:#06b6d4"></span> mounts</div>
-      <div class="flex items-center gap-2"><span class="w-4 border-t-2 inline-block" style="border-color:#1e40af"></span> external</div>
+      <div class="flex items-center gap-2"><span class="w-4 border-t-2 border-dashed inline-block" style="border-color:#f97316"></span> selects</div>
+      <div class="flex items-center gap-2"><span class="w-4 border-t-2 border-dashed inline-block" style="border-color:#f97316"></span> routes</div>
+      <div class="flex items-center gap-2"><span class="w-4 border-t-2 border-dashed inline-block" style="border-color:#06b6d4"></span> mounts</div>
+      <div class="flex items-center gap-2"><span class="w-4 border-t-2 border-dashed inline-block" style="border-color:#f97316"></span> external</div>
     </div>
 
     <!-- Cytoscape container -->
     <div ref="cyContainer" class="w-full rounded-lg border"
-      style="height: calc(100vh - 220px); background-color: var(--th-bg-card-alt, #f9fafb); border-color: var(--th-border, #e5e7eb);"></div>
+      :style="{ height: fullscreen ? '100%' : 'calc(100vh - 220px)', backgroundColor: 'var(--th-bg-card-alt, #f9fafb)', borderColor: 'var(--th-border, #e5e7eb)' }"></div>
 
     <!-- Layout computing overlay -->
     <div v-if="layoutRunning" class="absolute inset-0 flex items-center justify-center rounded-lg z-20"
@@ -277,11 +277,11 @@ const NODE_SIZES = {
 
 const EDGE_COLORS = {
   owns:     '#6b7280',
-  selects:  '#22c55e',
+  selects:  '#f97316',
   routes:   '#f97316',
   mounts:   '#06b6d4',
   usessa:   '#14b8a6',
-  external: '#1e40af',
+  external: '#f97316',
 }
 
 const POD_PHASE_COLORS = {
@@ -306,6 +306,7 @@ export default {
   props: {
     workloadData: { type: Object, default: () => ({}) },
     focusNodeId: { type: String, default: null },
+    fullscreen: { type: Boolean, default: false },
   },
 
   emits: ['node-selected', 'related-nodes'],
@@ -321,6 +322,8 @@ export default {
       layoutRunning: false,
       resizeObserver: null,
       themeObserver: null,
+      flowAnimFrame: null,
+      flowOffset: 0,
     }
   },
 
@@ -377,6 +380,7 @@ export default {
   },
 
   beforeUnmount() {
+    this.stopFlowAnimation()
     if (this.cy) this.cy.destroy()
     if (this.resizeObserver) this.resizeObserver.disconnect()
     if (this.themeObserver) this.themeObserver.disconnect()
@@ -403,119 +407,115 @@ export default {
         if (evt.target === this.cy) this.clearSelection()
       })
 
-      // On drag end, resolve overlaps between the dragged node and everything else.
-      // Leaf nodes get pushed out of foreign compounds.
-      // Compound nodes push away other unrelated compounds and leaf nodes.
+      // Track grab position so we can skip the expensive overlap resolution
+      // when the user just clicks without actually dragging.
+      let grabPos = null
+      this.cy.on('grab', 'node', (evt) => {
+        const p = evt.target.position()
+        grabPos = { x: p.x, y: p.y }
+      })
+
+      // On drag end, cascade-push all overlapping nodes.
+      // Uses instant shift() in a multi-pass loop so pushed nodes push their
+      // neighbors too, then resolveCompoundOverlaps cleans up any remaining issues.
       this.cy.on('free', 'node', (evt) => {
         const node = evt.target
+        // Skip if node wasn't actually moved (just clicked)
+        if (grabPos) {
+          const p = node.position()
+          if (Math.abs(p.x - grabPos.x) < 1 && Math.abs(p.y - grabPos.y) < 1) {
+            grabPos = null
+            return
+          }
+        }
+        grabPos = null
         const margin = 35
-        const nodeId = node.id()
 
-        // Build set of ancestor IDs for the dragged node
-        const ancestorIds = new Set()
-        let anc = node.parent()
-        while (anc && anc.length > 0) {
-          ancestorIds.add(anc.id())
-          anc = anc.parent()
-        }
+        this.cy.batch(() => {
+          if (!node.isParent()) {
+            // Leaf dragged: push it out of foreign outermost compounds first
+            const ancestorIds = new Set()
+            let anc = node.parent()
+            while (anc && anc.length > 0) { ancestorIds.add(anc.id()); anc = anc.parent() }
 
-        // Build set of descendant IDs for the dragged node
-        const descendantIds = new Set()
-        const collectDescendants = (n) => {
-          n.children().forEach(child => {
-            descendantIds.add(child.id())
-            collectDescendants(child)
-          })
-        }
-        if (node.isParent()) collectDescendants(node)
+            this.cy.nodes(':parent').forEach(compound => {
+              if (ancestorIds.has(compound.id())) return
+              const ct = compound.data('nodeType')
+              if (ct === 'namespace' || ct === 'zone') return
+              const cp = compound.parent()
+              if (cp.length) {
+                const cpt = cp.data('nodeType')
+                if (cpt !== 'namespace' && cpt !== 'zone') return
+              }
 
-        if (node.isParent()) {
-          // --- Compound node was dragged: push away unrelated nodes ---
-          const nodeBB = node.boundingBox({ includeLabels: true })
+              const lBB = node.boundingBox({ includeLabels: true })
+              const cBB = compound.boundingBox({ includeLabels: true })
+              if (lBB.x2 < cBB.x1 || lBB.x1 > cBB.x2 || lBB.y2 < cBB.y1 || lBB.y1 > cBB.y2) return
 
-          this.cy.nodes().forEach(other => {
-            const oid = other.id()
-            // Skip self, descendants, and ancestors
-            if (oid === nodeId || descendantIds.has(oid) || ancestorIds.has(oid)) return
-            // Skip if other is an ancestor of the dragged node
-            if (other.isParent()) {
-              let a = node.parent()
-              while (a && a.length > 0) {
-                if (a.id() === oid) return
-                a = a.parent()
+              const pos = node.position()
+              const cx = (cBB.x1 + cBB.x2) / 2
+              const cy = (cBB.y1 + cBB.y2) / 2
+              const dx = pos.x - cx
+              const dy = pos.y - cy
+              const hw = (cBB.x2 - cBB.x1) / 2 + margin
+              const hh = (cBB.y2 - cBB.y1) / 2 + margin
+              if (Math.abs(dx) / hw > Math.abs(dy) / hh) {
+                node.position({ x: cx + Math.sign(dx || 1) * hw, y: pos.y })
+              } else {
+                node.position({ x: pos.x, y: cy + Math.sign(dy || 1) * hh })
+              }
+            })
+          }
+
+          // Multi-pass: push all overlapping non-namespace/zone nodes apart.
+          // Each pass may displace nodes into new overlaps, so iterate.
+          // Skip if too many nodes — O(n^2) would lock the browser.
+          const skipTypes = new Set(['namespace', 'zone'])
+          const allNodes = this.cy.nodes(':visible').filter(n => !skipTypes.has(n.data('nodeType')))
+
+          if (allNodes.length > 80) return // too many nodes for pairwise check
+
+          for (let pass = 0; pass < 12; pass++) {
+            let moved = false
+            for (let i = 0; i < allNodes.length; i++) {
+              for (let j = i + 1; j < allNodes.length; j++) {
+                const a = allNodes[i]
+                const b = allNodes[j]
+
+                // Skip if one is an ancestor/descendant of the other
+                if (a.isParent() && b.ancestors().includes(a)) continue
+                if (b.isParent() && a.ancestors().includes(b)) continue
+                if (a.parent().id() !== b.parent().id() && !a.isParent() && !b.isParent()) {
+                  // Different parents and both leaves — skip (handled by sibling pass)
+                  continue
+                }
+
+                const aBB = a.boundingBox({ includeLabels: true })
+                const bBB = b.boundingBox({ includeLabels: true })
+                const overlapX = Math.min(aBB.x2 + margin, bBB.x2 + margin) - Math.max(aBB.x1 - margin, bBB.x1 - margin)
+                const overlapY = Math.min(aBB.y2 + margin, bBB.y2 + margin) - Math.max(aBB.y1 - margin, bBB.y1 - margin)
+                if (overlapX <= 0 || overlapY <= 0) continue
+
+                moved = true
+                if (overlapX < overlapY) {
+                  const shift = overlapX / 2 + 1
+                  const dir = (aBB.x1 + aBB.x2) <= (bBB.x1 + bBB.x2) ? -1 : 1
+                  a.shift({ x: dir * shift, y: 0 })
+                  b.shift({ x: -dir * shift, y: 0 })
+                } else {
+                  const shift = overlapY / 2 + 1
+                  const dir = (aBB.y1 + aBB.y2) <= (bBB.y1 + bBB.y2) ? -1 : 1
+                  a.shift({ x: 0, y: dir * shift })
+                  b.shift({ x: 0, y: -dir * shift })
+                }
               }
             }
-            // Skip namespace/zone containers — they're meant to hold everything
-            const ot = other.data('nodeType')
-            if (ot === 'namespace' || ot === 'zone') return
+            if (!moved) break
+          }
+        })
 
-            const oBB = other.boundingBox({ includeLabels: true })
-            const overlapX = Math.min(nodeBB.x2 + margin, oBB.x2 + margin) - Math.max(nodeBB.x1 - margin, oBB.x1 - margin)
-            const overlapY = Math.min(nodeBB.y2 + margin, oBB.y2 + margin) - Math.max(nodeBB.y1 - margin, oBB.y1 - margin)
-            if (overlapX <= 0 || overlapY <= 0) return
-
-            // Push the other node away from the dragged node
-            const nodeCx = (nodeBB.x1 + nodeBB.x2) / 2
-            const nodeCy = (nodeBB.y1 + nodeBB.y2) / 2
-            const oCx = (oBB.x1 + oBB.x2) / 2
-            const oCy = (oBB.y1 + oBB.y2) / 2
-            const dx = oCx - nodeCx
-            const dy = oCy - nodeCy
-
-            let newPos
-            if (overlapX < overlapY) {
-              const shift = overlapX + 1
-              newPos = { x: other.position().x + Math.sign(dx || 1) * shift, y: other.position().y }
-            } else {
-              const shift = overlapY + 1
-              newPos = { x: other.position().x, y: other.position().y + Math.sign(dy || 1) * shift }
-            }
-            other.animate({ position: newPos, duration: 200 })
-          })
-        } else {
-          // --- Leaf node was dragged: push it out of foreign outermost compounds ---
-          // Only check outermost compounds (not RS inside Deploy), so the leaf
-          // gets pushed to the deployment edge, not snapped to the replicaset edge.
-          const pos = node.position()
-          const nodeBB = node.boundingBox({ includeLabels: true })
-
-          this.cy.nodes(':parent').forEach(compound => {
-            if (ancestorIds.has(compound.id())) return
-            const ct = compound.data('nodeType')
-            if (ct === 'namespace' || ct === 'zone') return
-            // Skip nested compounds (e.g., RS inside Deploy) — only push from outermost
-            const cp = compound.parent()
-            if (cp.length) {
-              const cpt = cp.data('nodeType')
-              if (cpt !== 'namespace' && cpt !== 'zone') return
-            }
-
-            const cBB = compound.boundingBox({ includeLabels: true })
-            const overlaps = !(nodeBB.x2 < cBB.x1 || nodeBB.x1 > cBB.x2 ||
-                               nodeBB.y2 < cBB.y1 || nodeBB.y1 > cBB.y2)
-            if (!overlaps) return
-
-            const cx = (cBB.x1 + cBB.x2) / 2
-            const cy = (cBB.y1 + cBB.y2) / 2
-            const dx = pos.x - cx
-            const dy = pos.y - cy
-            const hw = (cBB.x2 - cBB.x1) / 2 + margin
-            const hh = (cBB.y2 - cBB.y1) / 2 + margin
-
-            let newPos
-            if (Math.abs(dx) / hw > Math.abs(dy) / hh) {
-              newPos = { x: cx + Math.sign(dx || 1) * hw, y: pos.y }
-            } else {
-              newPos = { x: pos.x, y: cy + Math.sign(dy || 1) * hh }
-            }
-            node.animate({ position: newPos, duration: 150 })
-          })
-        }
-
-        // After animations settle, run full overlap resolution to fix cascading collisions
-        // (pushed nodes may have landed on other nodes).
-        clearTimeout(this._dragOverlapTimer)
-        this._dragOverlapTimer = setTimeout(() => this.resolveCompoundOverlaps(false), 250)
+        // Run full overlap resolution for any edge cases
+        this.resolveCompoundOverlaps(false)
       })
     },
 
@@ -537,8 +537,11 @@ export default {
             'height': 35,
             'border-width': 2,
             'text-background-color': colors.canvasBg,
-            'text-background-opacity': 0.8,
-            'text-background-padding': '2px',
+            'text-background-opacity': 1,
+            'text-background-padding': '3px',
+            'text-background-shape': 'roundrectangle',
+            'z-compound-depth': 'top',
+            'z-index': 10,
           },
         },
         {
@@ -679,26 +682,39 @@ export default {
         style: { 'curve-style': 'bezier' },
       })
 
-      // Edge type styles — all solid lines (dashed/dotted are expensive).
-      // Differentiated by color and arrow shape instead.
+      // Animated flow edges — dashed lines with animated offset
       styles.push(
         {
           selector: 'edge[edgeType="selects"]',
           style: {
             'line-color': EDGE_COLORS.selects, 'target-arrow-color': EDGE_COLORS.selects,
+            'line-style': 'dashed', 'line-dash-pattern': [8, 4],
+            'width': 2, 'opacity': 0.85,
           },
         },
         {
           selector: 'edge[edgeType="routes"]',
           style: {
             'line-color': EDGE_COLORS.routes, 'target-arrow-color': EDGE_COLORS.routes,
+            'line-style': 'dashed', 'line-dash-pattern': [8, 4],
+            'width': 2, 'opacity': 0.85,
+          },
+        },
+        {
+          selector: 'edge[edgeType="external"]',
+          style: {
+            'line-color': EDGE_COLORS.external, 'target-arrow-color': EDGE_COLORS.external,
+            'line-style': 'dashed', 'line-dash-pattern': [10, 5],
+            'width': 3, 'opacity': 0.9,
           },
         },
         {
           selector: 'edge[edgeType="mounts"]',
           style: {
             'line-color': EDGE_COLORS.mounts, 'target-arrow-color': EDGE_COLORS.mounts,
-            'target-arrow-shape': 'diamond', 'width': 2, 'opacity': 0.85,
+            'target-arrow-shape': 'diamond',
+            'line-style': 'dashed', 'line-dash-pattern': [6, 4],
+            'width': 2, 'opacity': 0.85,
           },
         },
         {
@@ -706,13 +722,6 @@ export default {
           style: {
             'line-color': EDGE_COLORS.usessa, 'target-arrow-color': EDGE_COLORS.usessa,
             'target-arrow-shape': 'diamond',
-          },
-        },
-        {
-          selector: 'edge[edgeType="external"]',
-          style: {
-            'line-color': EDGE_COLORS.external, 'target-arrow-color': EDGE_COLORS.external,
-            'width': 3, 'opacity': 0.9,
           },
         },
       )
@@ -824,6 +833,7 @@ export default {
       const done = () => {
         this.resolveCompoundOverlaps()
         this.layoutRunning = false
+        this.startFlowAnimation()
       }
       opts.stop = done
 
@@ -855,6 +865,37 @@ export default {
           if (this.cy) this.cy.layout(opts).run()
         })
       })
+    },
+
+    startFlowAnimation() {
+      this.stopFlowAnimation()
+      if (!this.cy) return
+      const animatedEdges = this.cy.edges('[edgeType="external"], [edgeType="routes"], [edgeType="selects"], [edgeType="mounts"]')
+      if (animatedEdges.length === 0) return
+
+      let lastTime = 0
+      const tick = (time) => {
+        if (time - lastTime < 66) { // ~15fps
+          this.flowAnimFrame = requestAnimationFrame(tick)
+          return
+        }
+        lastTime = time
+        this.flowOffset = (this.flowOffset + 1) % 24
+        this.cy.batch(() => {
+          animatedEdges.forEach(edge => {
+            edge.style('line-dash-offset', -this.flowOffset)
+          })
+        })
+        this.flowAnimFrame = requestAnimationFrame(tick)
+      }
+      this.flowAnimFrame = requestAnimationFrame(tick)
+    },
+
+    stopFlowAnimation() {
+      if (this.flowAnimFrame) {
+        cancelAnimationFrame(this.flowAnimFrame)
+        this.flowAnimFrame = null
+      }
     },
 
     // Post-layout pass: push apart overlapping compound nodes.
@@ -1033,7 +1074,7 @@ export default {
           name: 'fcose', quality: 'default', animate: true, animationDuration: 300,
           fit: true, padding: 50, nodeSeparation: 200, idealEdgeLength: 180,
           nodeRepulsion: 30000, edgeElasticity: 0.35, gravity: 0.1,
-          numIter: 2500, tile: true,
+          numIter: 500, tile: true,
           avoidOverlap: true,
         },
         cose: {
@@ -1077,6 +1118,13 @@ export default {
       const data = node.data()
       this.selected = data
       this.$emit('node-selected', node.id())
+
+      // Namespace/zone nodes: just highlight, don't drill down (too many children)
+      const nt = data.nodeType
+      if (nt === 'namespace' || nt === 'zone') {
+        node.addClass('highlighted')
+        return
+      }
 
       // Collect all relevant node IDs first (cheap Set operations),
       // then build the Cytoscape collection once at the end.
@@ -1123,17 +1171,12 @@ export default {
       }
 
       // Build collection: all visited nodes + edges where both endpoints are visited
-      let visible = this.cy.collection()
-      const edgeList = []
-      nodeList.forEach(n => visible = visible.merge(n))
-      nodeList.forEach(n => {
-        n.connectedEdges().forEach(edge => {
-          if (visited.has(edge.source().id()) && visited.has(edge.target().id())) {
-            edgeList.push(edge)
-          }
-        })
-      })
-      edgeList.forEach(e => visible = visible.merge(e))
+      // Use union() once instead of repeated merge() calls (O(n) vs O(n^2))
+      let visible = this.cy.collection().union(this.cy.nodes().filter(n => visited.has(n.id())))
+      const visibleEdges = this.cy.edges().filter(edge =>
+        visited.has(edge.source().id()) && visited.has(edge.target().id())
+      )
+      visible = visible.union(visibleEdges)
 
       // Isolate: hide everything, show only collected elements
       this.cy.batch(() => {
