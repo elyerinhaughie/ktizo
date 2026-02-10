@@ -258,7 +258,7 @@
                   <!-- Number -->
                   <div v-else-if="field.type === 'number'">
                     <label class="block mb-1 text-sidebar-dark font-medium text-sm">{{ field.label }}</label>
-                    <input type="number" v-model.number="wizardValues[field.key]" class="w-full max-w-[200px] p-2 border border-gray-300 rounded text-sm" />
+                    <input type="number" v-model.number="wizardValues[field.key]" :max="field.max || undefined" :min="field.min || undefined" class="w-full max-w-[200px] p-2 border border-gray-300 rounded text-sm" />
                     <small class="text-gray-500 text-xs mt-1 block">{{ field.description }}</small>
                   </div>
                   <!-- Textarea -->
@@ -289,6 +289,16 @@
               </div>
             </div>
 
+            <!-- Storage Estimate Warning -->
+            <div v-if="wizardStorageWarning" class="p-4 bg-amber-50 border-l-4 border-amber-500 rounded text-sm text-amber-800 leading-relaxed mb-4">
+              <strong>Storage Estimate:</strong> {{ wizardStorageWarning }}
+            </div>
+
+            <!-- Validation Error -->
+            <div v-if="wizardValidationError" class="p-4 bg-red-50 border-l-4 border-red-500 rounded text-sm text-red-800 leading-relaxed">
+              <strong>Validation Error:</strong> {{ wizardValidationError }}
+            </div>
+
             <!-- Notes -->
             <div v-if="wizardModule.notes" class="p-4 bg-blue-50 border-l-4 border-blue-500 rounded text-sm text-blue-800 leading-relaxed">
               <strong>Note:</strong> {{ wizardModule.notes }}
@@ -298,7 +308,7 @@
           <!-- Sticky Actions -->
           <div class="flex justify-end gap-3 px-8 py-4 border-t border-gray-200 shrink-0 bg-white rounded-b-lg">
             <button type="button" @click="showWizard = false" class="py-2.5 px-6 border border-gray-300 rounded text-sm cursor-pointer bg-white hover:bg-gray-50">Cancel</button>
-            <button type="submit" :disabled="deploying" class="bg-[#42b983] text-white py-2.5 px-6 border-none rounded text-sm font-medium cursor-pointer transition-colors hover:bg-[#35a372] disabled:bg-gray-300 disabled:cursor-not-allowed">
+            <button type="submit" :disabled="deploying || wizardValidationError" class="bg-[#42b983] text-white py-2.5 px-6 border-none rounded text-sm font-medium cursor-pointer transition-colors hover:bg-[#35a372] disabled:bg-gray-300 disabled:cursor-not-allowed">
               {{ deploying ? 'Deploying...' : (wizardUpgrade ? 'Upgrade' : 'Deploy') }}
             </button>
           </div>
@@ -528,6 +538,43 @@ export default {
       // Filter out sections where all fields are hidden by show_when
       return sections.filter(s => this.wizardFieldsBySection(s).length > 0)
     },
+    wizardValidationError() {
+      // Check max constraints on any number field
+      if (this.wizardModule?.wizard_fields) {
+        for (const field of this.wizardModule.wizard_fields) {
+          if (field.type === 'number' && field.max != null) {
+            const val = parseInt(this.wizardValues[field.key])
+            if (!isNaN(val) && val > field.max) {
+              return `${field.label} exceeds maximum of ${field.max} (got ${val})`
+            }
+          }
+        }
+      }
+      // Redis cluster topology validation
+      if (this.wizardModule?.id !== 'redis') return null
+      const vals = this.wizardValues
+      if (vals.architecture !== 'cluster') return null
+      const nodeCount = parseInt(vals.replicaCount) || 3
+      const replicasPerMaster = parseInt(vals.clusterReplicaCount) || 0
+      if (nodeCount < 3) return `Redis cluster requires at least 3 nodes (got ${nodeCount})`
+      const divisor = replicasPerMaster + 1
+      if (nodeCount % divisor !== 0) {
+        return `Invalid topology: ${nodeCount} nodes with ${replicasPerMaster} replicas per master is not evenly divisible. ` +
+               `Node count must be a multiple of ${divisor} (e.g., ${divisor * 3}, ${divisor * 4}, ${divisor * 5})`
+      }
+      return null
+    },
+    wizardStorageWarning() {
+      if (this.wizardModule?.id !== 'redis') return null
+      const vals = this.wizardValues
+      if (vals['persistence.enabled'] === false) return null
+      const nodeCount = parseInt(vals.replicaCount) || 3
+      const sizeStr = vals['persistence.size'] || '8Gi'
+      const sizeNum = parseInt(sizeStr) || 8
+      const total = nodeCount * sizeNum
+      const withReplication = total * 3
+      return `${nodeCount} pods x ${sizeStr} = ${total}Gi. With Longhorn replication (3 replicas), this requires ~${withReplication}Gi of cluster storage.`
+    },
   },
   async mounted() {
     this.toast = useToast()
@@ -697,9 +744,19 @@ export default {
     buildValuesYaml() {
       const lines = []
       const flat = {}
+      // Build a map of wizard field definitions for show_when filtering
+      const fieldDefs = {}
+      for (const f of (this.wizardModule?.wizard_fields || [])) {
+        fieldDefs[f.key] = f
+      }
       for (const [key, value] of Object.entries(this.wizardValues)) {
         if (key.startsWith('_')) continue
         if (value === '' || value === null || value === undefined) continue
+        // Skip fields whose show_when condition is not met (hidden fields)
+        const def = fieldDefs[key]
+        if (def?.show_when) {
+          if (this.wizardValues[def.show_when.key] !== def.show_when.value) continue
+        }
         flat[key] = value
       }
 

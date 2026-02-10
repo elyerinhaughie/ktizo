@@ -1,11 +1,12 @@
-"""Tests for the Redis module: catalog entry, OCI install flow, application scope, dependencies."""
+"""Tests for the Redis module: catalog entry, OCI install flow, application scope, dependencies, validation."""
 import json
 import pytest
 from unittest.mock import AsyncMock, patch
 
 from app.services.module_catalog import get_catalog_entry
+from app.services.helm_runner import wizard_to_values
 from app.db.models import HelmRelease
-from tests.conftest import seed_helm_release
+from tests.conftest import seed_helm_release, get_ws_response
 
 
 # ---------------------------------------------------------------------------
@@ -403,3 +404,270 @@ async def test_redis_install_with_all_wizard_defaults(
     call_kwargs = mock_helm_runner.install.call_args
     assert call_kwargs[1]["values_yaml"] is not None
     assert "architecture" in call_kwargs[1]["values_yaml"]
+
+
+# ===========================================================================
+# 6. Catalog Default Alignment
+# ===========================================================================
+
+class TestRedisCatalogDefaults:
+    """Verify catalog defaults match the actual chart defaults."""
+
+    def test_cluster_replica_count_default_zero(self):
+        """clusterReplicaCount default should be 0 (matches chart default)."""
+        entry = get_catalog_entry("redis")
+        fields = {f["key"]: f for f in entry["wizard_fields"]}
+        assert fields["clusterReplicaCount"]["default"] == 0, (
+            "clusterReplicaCount default should be 0 (chart default), not 1"
+        )
+
+    def test_sentinel_default_disabled(self):
+        """sentinel.enabled default should be False (matches chart default)."""
+        entry = get_catalog_entry("redis")
+        fields = {f["key"]: f for f in entry["wizard_fields"]}
+        assert fields["sentinel.enabled"]["default"] is False, (
+            "sentinel.enabled default should be False (chart default), not True"
+        )
+
+
+# ===========================================================================
+# 7. Cluster Topology Validation
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_redis_cluster_rejects_invalid_topology(mock_db, mock_ws, mock_helm_runner):
+    """Cluster install with non-divisible node count is rejected before install starts."""
+    from app.api.ws_handler import _modules_install
+
+    params = _redis_install_params(
+        values_json=json.dumps({
+            "architecture": "cluster",
+            "replicaCount": 5,
+            "clusterReplicaCount": 1,
+        }),
+    )
+
+    with patch("app.services.helm_runner.helm_runner", mock_helm_runner):
+        await _modules_install(params, mock_ws, "req-validate")
+
+    data, error = get_ws_response(mock_ws)
+    assert error is not None, "Should reject invalid cluster topology"
+    assert "not evenly divisible" in error.lower() or "multiple of" in error.lower()
+    # Helm install should NOT have been called
+    mock_helm_runner.install.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_redis_cluster_rejects_too_few_nodes(mock_db, mock_ws, mock_helm_runner):
+    """Cluster install with fewer than 3 nodes is rejected."""
+    from app.api.ws_handler import _modules_install
+
+    params = _redis_install_params(
+        values_json=json.dumps({
+            "architecture": "cluster",
+            "replicaCount": 2,
+            "clusterReplicaCount": 0,
+        }),
+    )
+
+    with patch("app.services.helm_runner.helm_runner", mock_helm_runner):
+        await _modules_install(params, mock_ws, "req-validate-min")
+
+    data, error = get_ws_response(mock_ws)
+    assert error is not None, "Should reject cluster with < 3 nodes"
+    assert "at least 3" in error.lower()
+
+
+@pytest.mark.asyncio
+async def test_redis_cluster_accepts_valid_topology(
+    mock_db, mock_broadcast, mock_log_action,
+    mock_helm_runner, mock_post_install,
+):
+    """Cluster install with valid topology (6 nodes, 1 replica per master) succeeds."""
+    from app.api.ws_handler import _do_helm_install
+
+    values_json = json.dumps({
+        "architecture": "cluster",
+        "replicaCount": 6,
+        "clusterReplicaCount": 1,
+    })
+    release = seed_helm_release(mock_db, status="pending", catalog_id="redis",
+                                chart_name="oci://registry-1.docker.io/cloudpirates/redis",
+                                namespace="redis-cluster")
+    params = _redis_install_params(
+        namespace="redis-cluster",
+        values_yaml="architecture: cluster\nreplicaCount: 6\nclusterReplicaCount: 1",
+        values_json=values_json,
+    )
+
+    with patch("app.services.helm_runner.helm_runner", mock_helm_runner):
+        await _do_helm_install(release.id, params)
+
+    mock_db.expire_all()
+    updated = mock_db.query(HelmRelease).filter(HelmRelease.id == release.id).first()
+    assert updated.status == "deployed"
+
+
+@pytest.mark.asyncio
+async def test_redis_replication_skips_cluster_validation(mock_db, mock_ws, mock_helm_runner):
+    """Replication architecture skips cluster topology validation entirely."""
+    from app.api.ws_handler import _modules_install
+
+    params = _redis_install_params(
+        values_json=json.dumps({
+            "architecture": "replication",
+            "replicaCount": 3,
+        }),
+    )
+
+    with patch("app.services.helm_runner.helm_runner", mock_helm_runner):
+        mock_helm_runner.get_status = AsyncMock(return_value=None)
+        await _modules_install(params, mock_ws, "req-repl")
+
+    data, error = get_ws_response(mock_ws)
+    assert error is None, f"Replication mode should not be rejected, got: {error}"
+
+
+# ===========================================================================
+# 8. wizard_to_values Dot-Notation Conversion
+# ===========================================================================
+
+class TestWizardToValues:
+    """Verify dot-notation → nested dict conversion for Redis cluster config."""
+
+    def test_cluster_config_nesting(self):
+        """cluster.config.nodeTimeout becomes {cluster: {config: {nodeTimeout: ...}}}."""
+        flat = {
+            "architecture": "cluster",
+            "cluster.config.nodeTimeout": 15000,
+            "cluster.config.requireFullCoverage": True,
+        }
+        nested = wizard_to_values(flat)
+        assert nested["architecture"] == "cluster"
+        assert nested["cluster"]["config"]["nodeTimeout"] == 15000
+        assert nested["cluster"]["config"]["requireFullCoverage"] is True
+
+    def test_auth_nesting(self):
+        """auth.enabled and auth.password nest under auth."""
+        flat = {"auth.enabled": True, "auth.password": "secret"}
+        nested = wizard_to_values(flat)
+        assert nested["auth"]["enabled"] is True
+        assert nested["auth"]["password"] == "secret"
+
+    def test_persistence_nesting(self):
+        """persistence.enabled and persistence.size nest under persistence."""
+        flat = {"persistence.enabled": True, "persistence.size": "8Gi"}
+        nested = wizard_to_values(flat)
+        assert nested["persistence"]["enabled"] is True
+        assert nested["persistence"]["size"] == "8Gi"
+
+    def test_resources_deep_nesting(self):
+        """resources.requests.memory becomes {resources: {requests: {memory: ...}}}."""
+        flat = {"resources.requests.memory": "128Mi", "resources.limits.memory": "256Mi"}
+        nested = wizard_to_values(flat)
+        assert nested["resources"]["requests"]["memory"] == "128Mi"
+        assert nested["resources"]["limits"]["memory"] == "256Mi"
+
+    def test_sentinel_nesting(self):
+        """sentinel.enabled and sentinel.quorum nest under sentinel."""
+        flat = {"sentinel.enabled": True, "sentinel.quorum": 2}
+        nested = wizard_to_values(flat)
+        assert nested["sentinel"]["enabled"] is True
+        assert nested["sentinel"]["quorum"] == 2
+
+
+# ===========================================================================
+# 9. Replica Count Maximum Validation
+# ===========================================================================
+
+class TestRedisReplicaCountMax:
+    """Validate the replicaCount max field and backend enforcement."""
+
+    def test_redis_replica_count_has_max(self):
+        """replicaCount wizard field has a max of 12."""
+        entry = get_catalog_entry("redis")
+        fields = {f["key"]: f for f in entry["wizard_fields"]}
+        assert "max" in fields["replicaCount"], "replicaCount field must have a 'max' key"
+        assert fields["replicaCount"]["max"] == 12
+
+
+@pytest.mark.asyncio
+async def test_redis_cluster_rejects_excessive_nodes(mock_db, mock_ws, mock_helm_runner):
+    """Cluster install with replicaCount > 12 is rejected before install starts."""
+    from app.api.handlers.modules import _modules_install
+
+    params = _redis_install_params(
+        values_json=json.dumps({
+            "architecture": "cluster",
+            "replicaCount": 15,
+            "clusterReplicaCount": 0,
+        }),
+    )
+
+    with patch("app.services.helm_runner.helm_runner", mock_helm_runner):
+        await _modules_install(params, mock_ws, "req-max-cluster")
+
+    data, error = get_ws_response(mock_ws)
+    assert error is not None, "Should reject replicaCount > 12"
+    assert "maximum of 12" in error.lower()
+    mock_helm_runner.install.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_redis_replication_rejects_excessive_nodes(mock_db, mock_ws, mock_helm_runner):
+    """Replication install with replicaCount > 12 is also rejected."""
+    from app.api.handlers.modules import _modules_install
+
+    params = _redis_install_params(
+        values_json=json.dumps({
+            "architecture": "replication",
+            "replicaCount": 21,
+        }),
+    )
+
+    with patch("app.services.helm_runner.helm_runner", mock_helm_runner):
+        await _modules_install(params, mock_ws, "req-max-repl")
+
+    data, error = get_ws_response(mock_ws)
+    assert error is not None, "Should reject replicaCount > 12 for replication"
+    assert "maximum of 12" in error.lower()
+    mock_helm_runner.install.assert_not_awaited()
+
+
+# ===========================================================================
+# 10. Failed Install Triggers Cleanup
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_redis_install_failure_triggers_cleanup(
+    mock_db, mock_broadcast, mock_log_action,
+    mock_post_install,
+):
+    """Failed helm install triggers force_uninstall to clean up orphaned resources."""
+    from app.api.handlers.modules import _do_helm_install
+    from unittest.mock import AsyncMock, MagicMock
+
+    # Create a helm runner that fails on install
+    runner = MagicMock()
+    runner.repo_add = AsyncMock(return_value=(True, "repo added"))
+    runner.repo_update = AsyncMock(return_value=(True, "updated"))
+    runner.install = AsyncMock(return_value=(False, "context deadline exceeded"))
+    runner.force_uninstall = AsyncMock(return_value=(True, "uninstalled"))
+    runner.get_status = AsyncMock(return_value=None)
+
+    release = seed_helm_release(mock_db, status="pending", catalog_id="redis",
+                                chart_name="oci://registry-1.docker.io/cloudpirates/redis",
+                                namespace="redis-fail")
+    params = _redis_install_params(namespace="redis-fail")
+
+    with patch("app.services.helm_runner.helm_runner", runner):
+        await _do_helm_install(release.id, params)
+
+    # Verify force_uninstall was called for cleanup
+    runner.force_uninstall.assert_awaited_once_with("my-redis", "redis-fail")
+
+    # Verify DB status is "failed"
+    mock_db.expire_all()
+    updated = mock_db.query(HelmRelease).filter(HelmRelease.id == release.id).first()
+    assert updated.status == "failed"
+    assert "context deadline exceeded" in (updated.status_message or "")

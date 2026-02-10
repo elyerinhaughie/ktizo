@@ -63,6 +63,30 @@ async def _modules_install(params: dict, ws: WebSocket, req_id: str):
         from app.services.helm_runner import helm_runner
         namespace = params.get("namespace", "default")
 
+        # Validate Redis topology and replica limits before install
+        if params.get("catalog_id") == "redis" and params.get("values_json"):
+            try:
+                vals = json.loads(params["values_json"]) if isinstance(params["values_json"], str) else params["values_json"]
+                replica_count = int(vals.get("replicaCount", 3))
+                if replica_count > 12:
+                    return await _ws._respond(ws, req_id,
+                        error=f"Redis supports a maximum of 12 nodes through the wizard (got {replica_count}). "
+                              f"Each node creates a PVC; with Longhorn replication this can quickly exhaust cluster storage.")
+                if vals.get("architecture") == "cluster":
+                    cluster_replica_count = int(vals.get("clusterReplicaCount", 0))
+                    if replica_count < 3:
+                        return await _ws._respond(ws, req_id,
+                            error=f"Redis cluster requires at least 3 nodes (got {replica_count})")
+                    divisor = cluster_replica_count + 1
+                    if replica_count % divisor != 0:
+                        masters = replica_count // divisor
+                        return await _ws._respond(ws, req_id,
+                            error=f"Invalid cluster topology: {replica_count} nodes with {cluster_replica_count} replicas per master "
+                                  f"is not evenly divisible. Node count must be a multiple of {divisor} "
+                                  f"(e.g., {divisor * max(3, masters)}, {divisor * (max(3, masters) + 1)}, {divisor * (max(3, masters) + 2)})")
+            except (ValueError, TypeError):
+                pass
+
         # Check for duplicate in our DB
         existing = crud.get_helm_release_by_name(db, params["release_name"])
         if existing:
@@ -267,6 +291,17 @@ async def _do_helm_install(release_id: int, params: dict):
                 "helm_release", str(release_id))
         else:
             _log(f"\nFAILED: {msg}")
+
+            # Attempt cleanup of partial resources left by the failed install
+            _log("\n--- Cleaning up failed installation...")
+            await _broadcast_log()
+            try:
+                await helm_runner.force_uninstall(params["release_name"], params.get("namespace", "default"))
+                _log("Cleanup completed (helm uninstall)")
+            except Exception as cleanup_err:
+                _log(f"Cleanup warning: {cleanup_err}")
+            await _broadcast_log()
+
             full_log = "\n".join(log_lines)
             crud.update_helm_release_status(db, release_id, "failed", msg, log_output=full_log)
             await _ws._broadcast("module_status_changed", {
@@ -696,6 +731,7 @@ async def _modules_import(params: dict, ws: WebSocket, req_id: str):
     try:
         from app.crud import helm as crud
         from app.db.models import HelmRelease
+        from app.services.helm_runner import helm_runner
 
         release_name = params.get("release_name")
         namespace = params.get("namespace", "default")

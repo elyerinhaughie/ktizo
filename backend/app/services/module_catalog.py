@@ -495,6 +495,7 @@ MODULE_CATALOG = [
                 "description": "Total Redis nodes. Replication: 1 master + (N-1) read replicas. Cluster: total nodes must be a multiple of (clusterReplicaCount + 1), minimum 3.",
                 "type": "number",
                 "default": 3,
+                "max": 12,
                 "section": "Topology",
             },
             {
@@ -502,7 +503,7 @@ MODULE_CATALOG = [
                 "label": "Replicas per Master",
                 "description": "Number of replica nodes per master shard. Example: 6 nodes with 1 replica = 3 masters + 3 replicas. Set to 0 for masters only.",
                 "type": "number",
-                "default": 1,
+                "default": 0,
                 "section": "Cluster",
                 "show_when": {"key": "architecture", "value": "cluster"},
             },
@@ -529,7 +530,7 @@ MODULE_CATALOG = [
                 "label": "Enable Sentinel",
                 "description": "Deploy Sentinel sidecars for automatic master failover.",
                 "type": "boolean",
-                "default": True,
+                "default": False,
                 "section": "High Availability",
                 "show_when": {"key": "architecture", "value": "replication"},
             },
@@ -609,7 +610,7 @@ MODULE_CATALOG = [
             },
         ],
         "default_values": {},
-        "notes": "Standalone/Replication: connect to <release>-redis-master.<namespace>:6379. Cluster: connect to any node on port 6379, clients must support MOVED/ASK redirects (e.g., redis-cli -c). Get password: kubectl get secret <release>-redis -n <namespace> -o jsonpath='{.data.redis-password}' | base64 -d",
+        "notes": "Standalone/Replication: connect to <release>-redis-master.<namespace>:6379. Cluster: connect to any node on port 6379, clients must support MOVED/ASK redirects (e.g., redis-cli -c). Get password: kubectl get secret <release>-redis -n <namespace> -o jsonpath='{.data.redis-password}' | base64 -d. Storage: each node creates a PVC. With Longhorn (default 3 replicas), total cluster storage is approximately nodeCount x volumeSize x 3. For a 6-node cluster with 8Gi volumes: 6 x 8 x 3 = 144Gi.",
     },
 
     # ── Monitoring ───────────────────────────────────────────────────────
