@@ -9,6 +9,7 @@ from app.api.handlers.talos import TALOS_ACTIONS
 from app.api.handlers.modules import MODULE_ACTIONS
 from app.api.handlers.longhorn import LONGHORN_ACTIONS
 from app.api.handlers.troubleshoot import TROUBLESHOOT_ACTIONS
+from app.api.handlers.workloads import WORKLOAD_ACTIONS
 
 
 def build_action_map() -> dict:
@@ -24,6 +25,7 @@ def build_action_map() -> dict:
         MODULE_ACTIONS,
         LONGHORN_ACTIONS,
         TROUBLESHOOT_ACTIONS,
+        WORKLOAD_ACTIONS,
     ]:
         action_map.update(actions)
     return action_map

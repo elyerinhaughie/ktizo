@@ -153,6 +153,9 @@ export default {
   rbacPresets: () => ws.request('rbac.presets.list'),
   rbacWizardCreate: (params) => ws.request('rbac.wizard.create', params),
 
+  // --- Workloads ---
+  workloadsList: (params) => ws.request('workloads.list', params || {}),
+
   // --- Troubleshooting ---
   troubleshootStatus: () => ws.request('troubleshoot.status'),
   troubleshootFixKubeconfig: () => ws.request('troubleshoot.fix_kubeconfig'),

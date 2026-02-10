@@ -183,6 +183,10 @@ from app.api.handlers.rbac import (           # noqa: F401
     RBAC_ACTIONS,
 )
 
+from app.api.handlers.workloads import (     # noqa: F401
+    WORKLOAD_ACTIONS,
+)
+
 # ---------------------------------------------------------------------------
 # ACTION_MAP + dispatcher
 # ---------------------------------------------------------------------------
@@ -200,6 +204,7 @@ ACTION_MAP.update(TROUBLESHOOT_ACTIONS)
 ACTION_MAP.update(CICD_ACTIONS)
 ACTION_MAP.update(METRICS_ACTIONS)
 ACTION_MAP.update(RBAC_ACTIONS)
+ACTION_MAP.update(WORKLOAD_ACTIONS)
 
 
 async def handle_ws_message(ws: WebSocket, raw: str):

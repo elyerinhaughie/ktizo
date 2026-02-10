@@ -61,6 +61,7 @@ const routes = [
   { path: '/modules/applications', name: 'ModulesApplications', component: Modules },
   { path: '/longhorn', name: 'LonghornManagement', component: LonghornManagement },
   { path: '/rbac', name: 'RbacManagement', component: () => import('./views/RbacManagement.vue') },
+  { path: '/workloads', name: 'WorkloadGraph', component: () => import('./views/WorkloadManagement.vue') },
   { path: '/cicd', name: 'CiCdRunners', component: () => import('./views/CiCdRunners.vue') },
   { path: '/wiki', name: 'Wiki', component: Wiki },
   { path: '/terminal', name: 'Terminal', component: Terminal },

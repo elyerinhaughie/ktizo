@@ -48,6 +48,15 @@
     <div ref="cyContainer" class="w-full rounded-lg border"
       style="height: calc(100vh - 220px); background-color: var(--th-bg-card-alt, #f9fafb); border-color: var(--th-border, #e5e7eb);"></div>
 
+    <!-- Layout computing overlay -->
+    <div v-if="layoutRunning" class="absolute inset-0 flex items-center justify-center rounded-lg z-20"
+      style="background-color: var(--th-bg-card-alt, #f9fafb); backdrop-filter: blur(2px);">
+      <div class="flex flex-col items-center gap-3">
+        <div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        <span class="text-sm font-medium" style="color: var(--th-text-secondary, #6b7280);">Computing layout...</span>
+      </div>
+    </div>
+
     <!-- Empty state -->
     <div v-if="isEmpty" class="absolute inset-0 flex items-center justify-center pointer-events-none">
       <div class="text-center">
@@ -205,6 +214,8 @@ export default {
       selectedChildren: { serviceaccounts: 0, roles: 0 },
       /** @type {boolean} True when the graph has no elements to display */
       isEmpty: false,
+      /** @type {boolean} True while a layout algorithm is computing */
+      layoutRunning: false,
       /** @type {ResizeObserver|null} Watches container size changes to resize the canvas */
       resizeObserver: null,
       /** @type {MutationObserver|null} Watches data-theme attribute for dark/light mode switches */
@@ -491,6 +502,8 @@ export default {
     runLayout() {
       if (!this.cy || this.cy.nodes().length === 0) return
 
+      this.layoutRunning = true
+
       const layoutConfigs = {
         dagre: {
           name: 'dagre',
@@ -563,7 +576,16 @@ export default {
         },
       }
 
-      this.cy.layout(layoutConfigs[this.layoutName] || layoutConfigs.fcose).run()
+      const opts = layoutConfigs[this.layoutName] || layoutConfigs.fcose
+      const done = () => { this.layoutRunning = false }
+      opts.stop = done
+
+      // Double rAF ensures the browser paints the loading overlay before layout blocks the thread
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (this.cy) this.cy.layout(opts).run()
+        })
+      })
     },
 
     /**

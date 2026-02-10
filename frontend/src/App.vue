@@ -40,6 +40,10 @@
           <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'shield-halved']" /></span>
           <span class="text-[0.95rem]">RBAC</span>
         </router-link>
+        <router-link to="/workloads" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
+          <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'diagram-project']" /></span>
+          <span class="text-[0.95rem]">Workloads</span>
+        </router-link>
         <router-link to="/terminal" class="nav-item flex items-center gap-3 py-3 px-4 text-white/80 no-underline transition-all duration-300 border-l-3 border-transparent hover:bg-white/10 hover:text-white">
           <span class="text-lg w-6 text-center shrink-0"><font-awesome-icon :icon="['fas', 'terminal']" /></span>
           <span class="text-[0.95rem]">Terminal</span>
@@ -147,7 +151,8 @@ export default {
           m => m.chart_name?.includes('longhorn') && m.status !== 'uninstalling'
         )
         this.arcInstalled = (modules || []).some(
-          m => m.chart_name?.includes('gha-runner-scale-set-controller') && m.status !== 'uninstalling'
+          m => (m.catalog_id === 'arc-controller' || m.catalog_id === 'arc-runner-set' ||
+                m.chart_name?.includes('gha-runner-scale-set')) && m.status !== 'uninstalling'
         )
       } catch {
         // Silently ignore — WS may not be ready yet
